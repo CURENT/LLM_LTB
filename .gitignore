@@ -1,0 +1,81 @@
+# IDE & Editor
+.cursor
+.claude
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Environment files (keep .env.example tracked)
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+.venv/
+ENV/
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Testing & type-checking
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.hypothesis/
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pytype/
+.pyre/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+.Spotlight-V100
+.Trashes
+
+# Project-specific
+# Generated plots / figures (AMS engine output)
+LLM_AMS/generated/
+generated/
+plots/
+Reference/
+
+# ANDES / AMS auto-generated case output files (case118_out.txt, ieee39_full_out.txt, ...)
+*_out.txt
+
+# Vector store / embeddings cache (if added later)
+vector_db/
+**/vector_db/
+
+# Logs
+*.log
+logs/
