@@ -58,9 +58,11 @@ def check_constraints(ams_ctx, results: dict) -> List[Tuple[str, str, str]]:
     pg = results.get("pg")
     if pg is not None:
         try:
-            gen_idx = list(ss.StaticGen.idx.v)
-            pmax = np.asarray(ss.StaticGen.pmax.v, dtype=float)
-            pmin = np.asarray(ss.StaticGen.pmin.v, dtype=float)
+            gen_idx = results.get("gen_idx") or list(ss.StaticGen.get_all_idxes())
+            pmax = np.asarray(
+                ss.StaticGen.get(src="pmax", idx=gen_idx, attr="v"), dtype=float)
+            pmin = np.asarray(
+                ss.StaticGen.get(src="pmin", idx=gen_idx, attr="v"), dtype=float)
             pg_max = _max_over_time(pg)
             pg_min = _min_over_time(pg)
             for i, idx_str in enumerate(gen_idx):
@@ -79,8 +81,9 @@ def check_constraints(ams_ctx, results: dict) -> List[Tuple[str, str, str]]:
                         f"{pg_max[i]:.4f} / {pmax[i]:.4f} pu  ({100*pg_max[i]/pmax[i]:.1f}%)",
                         SEV_WARN,
                     ))
-                # Lower limit
-                if pg_min[i] < pmin[i] - 0.001 and pmin[i] > -50:
+                # Lower limit (skip decommitted units at pg~0, e.g. UC/ED off)
+                if (pmin[i] > -50 and abs(pg_min[i]) > 1e-6
+                        and pg_min[i] < pmin[i] - 0.001):
                     items.append((
                         f"Gen {idx_str} below Pmin",
                         f"{pg_min[i]:.4f}  <  {pmin[i]:.4f}  pu",
