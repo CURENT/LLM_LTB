@@ -7,7 +7,11 @@ Mirrors the ex2.ipynb workflow:
 - config_t: time interval for RTED/ED (hours)
 - disabled_constraints: routine constraints turned off via routine.disable(...)
 - load_overrides / gen_off / line_off / line_rate_overrides:
-  in-memory edits that are re-applied to the live AMS System on each solve
+  a record of the in-session edits the modify node has already applied to the
+  live AMS System. They are NOT re-applied anywhere: nothing reads them back on
+  solve. They are reset-only — cleared when a case is (re)loaded
+  (agent/nodes/case_io.py, web/backend/main.py) — and shown to the LLM as
+  context for the next modify request.
 """
 
 from typing import Dict, List, Optional
@@ -28,7 +32,7 @@ class Inputs(BaseModel):
     # routine.disable / enable
     disabled_constraints: List[str] = Field(default_factory=list)
 
-    # PQ.alter(src='p0', idx=[...], value=[...]) — keyed by PQ idx
+    # record of PQ.alter(src='p0', ...) edits already applied — keyed by PQ idx; reset-only
     load_overrides: Dict[str, float] = Field(default_factory=dict)
 
     # StaticGen.set(src='u', idx=..., value=0|1) — set of gen idx currently off

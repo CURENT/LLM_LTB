@@ -6,7 +6,8 @@ flagging violations or near-violations.
 
 The check is conservative — it works directly with the solved values stored
 on the active routine (``pg``, ``plf``) plus the static limits on the
-``StaticGen`` / ``Line`` / ``Bus`` models.
+``StaticGen`` / ``Line`` / ``Bus`` models. The power-balance check uses the
+routine's own demand (``pds`` per slot for multi-period routines, ``pd`` otherwise).
 """
 
 from typing import List, Tuple
@@ -129,16 +130,31 @@ def check_constraints(ams_ctx, results: dict) -> List[Tuple[str, str, str]]:
             pass
 
     # --- Power balance residual ---
+    # Multi-period routines (ED/UC families) do not dispatch against the static PQ.p0:
+    # their demand is the (n_load, n_slot) matrix ``pds`` = sd[area, t] * p0 (times any
+    # per-load curve), and UC additionally sheds ``pdu``. Comparing 2-D pg against p0
+    # reported a spurious -1.405 pu "violation" on the unmodified pjm5bus case
+    # (sd 0.70-1.00, Σp0 = 10.00, mean Σpds = 8.59). Compare per slot against pds
+    # and report the worst slot; single-period routines keep the pd/p0 comparison.
     try:
         pg_arr = np.asarray(results.get("pg", []), dtype=float)
-        pq_p0 = np.asarray(ss.PQ.p0.v, dtype=float)
+        rtn = ams_ctx.active_routine()
         if pg_arr.size:
-            if pg_arr.ndim == 1:
-                residual = float(pg_arr.sum() - pq_p0.sum())
+            if pg_arr.ndim == 2 and hasattr(rtn, "pds"):
+                demand = np.asarray(rtn.pds.v, dtype=float)
+                if hasattr(rtn, "pdu"):                    # UC: served load = pds - shed
+                    demand = demand - np.asarray(rtn.pdu.v, dtype=float)
+                per_slot = pg_arr.sum(axis=0) - demand.sum(axis=0)
+                k = int(np.argmax(np.abs(per_slot)))
+                residual = float(per_slot[k])
+                value = f"{residual:+.6f} pu (worst of {per_slot.size} slots: slot {k + 1})"
             else:
-                residual = float(pg_arr.sum(axis=0).mean() - pq_p0.sum())
+                pd_v = np.asarray(rtn.pd.v if hasattr(rtn, "pd") else ss.PQ.p0.v, dtype=float)
+                total_pg = pg_arr.sum() if pg_arr.ndim == 1 else pg_arr.sum(axis=0).mean()
+                residual = float(total_pg - pd_v.sum())
+                value = f"{residual:+.6f} pu"
             sev = SEV_OK if abs(residual) < 1e-3 else SEV_WARN if abs(residual) < 1e-1 else SEV_VIOL
-            items.append(("Power balance residual", f"{residual:+.6f} pu", sev))
+            items.append(("Power balance residual", value, sev))
     except Exception:
         pass
 

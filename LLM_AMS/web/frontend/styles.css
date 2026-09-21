@@ -379,7 +379,12 @@ table.data-table tbody tr:hover td { background: #fafdff; }
 .result-figs { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; margin-bottom: 12px; }
 .result-fig { margin: 0; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: #fff; }
 .result-fig img { width: 100%; display: block; }
+.result-fig a { display: block; cursor: zoom-in; }
+.result-fig .fig-open { color: var(--accent); margin-left: 6px; }
 .result-fig figcaption { font-family: var(--mono); font-size: 11px; color: var(--muted); text-align: center; padding: 5px; border-top: 1px solid var(--line); }
+/* long-horizon figures (pg / plf) get the full card width; single-period bars stay in the grid */
+.result-figs { grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }
+.result-figs .result-fig:has(img[alt="pg"]), .result-figs .result-fig:has(img[alt="plf"]) { grid-column: 1 / -1; }
 
 .result-block { margin-top: 10px; }
 .result-block h3 { font-size: 13px; margin: 0 0 6px; color: var(--ink); }

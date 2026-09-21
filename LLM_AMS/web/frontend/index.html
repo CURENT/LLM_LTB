@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>LLM · LTB · AMS — Scheduling Studio</title>
   <link rel="preconnect" href="https://cdn.jsdelivr.net" />
-  <link rel="stylesheet" href="styles.css?v=3" />
+  <link rel="stylesheet" href="styles.css?v=6" />
 
   <!-- MathJax 3: enable both display (\[ \] / $$) and inline ($ / \( \)) math -->
   <script>
@@ -58,6 +58,14 @@
       <div class="control">
         <label for="case-select">Grid case</label>
         <select id="case-select"></select>
+      </div>
+
+      <div class="control" id="week-control">
+        <label for="profile-file">Week profile (profile.csv)</label>
+        <input id="profile-file" type="file" accept=".csv,text/csv"
+               title="hour,timestamp,PQ_1,PQ_2,… in MW — one row per hour, contiguous">
+        <button id="week-build-btn" class="btn btn-primary" type="button" disabled>Build N-hour case</button>
+        <p id="week-note" class="control-note">Builds a case whose EDSlot/UCSlot tables span the whole profile; then pick ED/UC and Run solve.</p>
       </div>
 
       <div class="control">
@@ -129,6 +137,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=3"></script>
+  <script src="app.js?v=6"></script>
 </body>
 </html>

@@ -8,6 +8,7 @@ const API = {
   formulation: (r) => fetch(`api/formulation/${encodeURIComponent(r)}`).then(j),
   case: (r, c) => fetch(`api/case?routine=${encodeURIComponent(r)}&case=${encodeURIComponent(c)}`).then(j),
   solve: (body) => post("api/solve", body),
+  weekBuild: (body) => post("api/week/build", body),
   report: (body) => post("api/report", body),
   chat: (body) => post("api/chat", body),
   llm: () => fetch("api/llm").then(j),
@@ -110,6 +111,51 @@ function renderCases(cases, def) {
   sel.addEventListener("change", () => {
     state.case = sel.value;
     refresh();
+  });
+}
+
+// ---------------------------------------------------------------- week profile upload
+// Reads the chosen profile.csv in the browser and posts its text; the backend builds an
+// N-slot case (generated/week/<id>.xlsx), registers it in the case picker and loads it.
+function initWeekUpload() {
+  const file = $("profile-file"), btn = $("week-build-btn"), note = $("week-note");
+  if (!file || !btn) return;
+  const sync = () => { btn.disabled = !file.files.length; };
+  file.addEventListener("change", sync);
+  sync();                                   // a file may already be selected (page restored)
+  btn.addEventListener("click", async () => {
+    if (!file.files.length || state.busy) return;
+    const f = file.files[0];
+    const text = await f.text();
+    const stem = f.name.replace(/\.csv$/i, "").replace(/[^A-Za-z0-9_.-]/g, "_");
+    state.busy = true; btn.disabled = true;
+    setStatus(`building case from ${f.name}…`);
+    note.className = "control-note";
+    note.textContent = "Building…";
+    try {
+      const r = await API.weekBuild({ profile_csv: text, base: state.case, case_id: `${state.case}_${stem}` });
+      const sel = $("case-select");
+      if (![...sel.options].some((o) => o.value === r.case_id)) {
+        const opt = document.createElement("option");
+        opt.value = r.case_id; opt.textContent = r.label;
+        sel.appendChild(opt);
+      }
+      sel.value = r.case_id;
+      state.case = r.case_id;
+      note.textContent = `Built ${r.case_id}: ${r.n_slots} slots` +
+        (r.curve_sheets.length ? `, per-load sheets ${r.curve_sheets.join("/")}` : ", native tables only") +
+        `. Now choose ED or UC and press Run solve.`;
+      setStatus(`built ${r.case_id} (${r.n_slots} slots)`, "ok");
+      state.busy = false;
+      await refresh();
+    } catch (err) {
+      note.className = "control-note warn";
+      note.textContent = `Build failed: ${err.message}`;
+      setStatus(`error: ${err.message}`, "err");
+      state.busy = false;
+    } finally {
+      btn.disabled = !file.files.length;
+    }
   });
 }
 
@@ -430,8 +476,14 @@ function renderResults(payload) {
     metrics.unshift(metricPill("objective", Number(payload.objective).toFixed(4)));
   }
   if (viol.length) metrics.push(metricPill("violations", String(viol.length)));
-  else if (warn.length) metrics.push(metricPill("warnings", String(warn.length)));
-  else metrics.push(metricPill("limits", "all respected"));
+  if (payload.horizon_slots && payload.horizon_slots > 1) {
+    metrics.push(metricPill("slots", String(payload.horizon_slots)));
+  }
+  if (payload.pq_curves && payload.pq_curves.length) {
+    metrics.push(metricPill("load curves", payload.pq_curves.join(", ")));
+  }
+  if (!viol.length && warn.length) metrics.push(metricPill("warnings", String(warn.length)));
+  else if (!viol.length) metrics.push(metricPill("limits", "all respected"));
 
   // plot thumbnails
   const plots = payload.plots || {};
@@ -439,8 +491,10 @@ function renderResults(payload) {
     .filter((k) => plots[k])
     .map(
       (k) =>
-        `<figure class="result-fig"><img src="${esc(plots[k])}" alt="${esc(k)}" loading="lazy" />` +
-        `<figcaption>${esc(k)}</figcaption></figure>`
+        `<figure class="result-fig">` +
+        `<a href="${esc(plots[k])}" target="_blank" rel="noopener" title="Open ${esc(k)} full size in a new tab">` +
+        `<img src="${esc(plots[k])}" alt="${esc(k)}" loading="lazy" /></a>` +
+        `<figcaption>${esc(k)} <span class="fig-open">⤢ open</span></figcaption></figure>`
     )
     .join("");
 
@@ -656,6 +710,7 @@ async function boot() {
     ]);
     renderRoutines(routines.groups);
     renderCases(cases.cases, cases.default);
+    initWeekUpload();
     if (llm) renderLlm(llm);
     state.case = cases.default;
     state.routine = routines.default;
