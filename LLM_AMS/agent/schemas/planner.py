@@ -14,6 +14,7 @@ class StepType(BaseModel):
         "case_io",
         "configure",
         "modify",
+        "formulate",
         "solve",
     ] = Field(..., description="Which route handles this step")
 

@@ -1,0 +1,306 @@
+{
+  "checks": [
+    {
+      "name": "1. Live PJM 5-bus baseline",
+      "passed": true
+    },
+    {
+      "name": "2. Warm IBR replacement and real DCP/residuals",
+      "passed": true
+    },
+    {
+      "name": "3. Independent HiGHS formulation agrees",
+      "passed": true
+    },
+    {
+      "name": "4. Cold model and alternate device mapping",
+      "passed": true
+    },
+    {
+      "name": "5. Invalid inputs leave live system intact",
+      "passed": true
+    },
+    {
+      "name": "6. Build failure rollback, duplicate guard and reload",
+      "passed": true
+    },
+    {
+      "name": "7. Curtailment responds correctly to penalty",
+      "passed": true
+    },
+    {
+      "name": "8. Verifier catches injected result errors",
+      "passed": true
+    },
+    {
+      "name": "9. Web HTTP solve and edited formulation",
+      "passed": true
+    }
+  ],
+  "evidence": {
+    "baseline_objective": 9.535953244734864,
+    "edited_result": {
+      "routine": "DCOPF",
+      "solver": "CLARABEL",
+      "converged": true,
+      "exit_code": 0,
+      "objective": 9.674966452901614,
+      "pg": [
+        1.9153156334330305e-13,
+        1.253436707880846,
+        0.6000000001066191,
+        5.1465632929762295,
+        1.9999999990611863
+      ],
+      "pibr": [
+        0.9999999999750756
+      ],
+      "pcurt": [
+        2.4924238459088342e-11
+      ],
+      "plf": [
+        -0.07328164658094839,
+        0.8903899982768791,
+        0.2561732948601235,
+        1.9999999998143319,
+        0.25343670769518495,
+        -0.8561732949667453,
+        -0.07328164658094839
+      ],
+      "pd": [
+        3.0,
+        3.0,
+        4.0
+      ],
+      "aBus": [
+        0.02706785594761713,
+        0.02912707021654178,
+        0.007527070218546994,
+        -1.2425961866479913e-22,
+        0.02542834686051234
+      ],
+      "vBus": [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "ug": [
+        0.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "gen_idx": [
+        "PV_1",
+        "PV_3",
+        "PV_5",
+        "PV_2",
+        "Slack_4"
+      ],
+      "line_idx": [
+        "Line_1",
+        "Line_2",
+        "Line_3",
+        "Line_4",
+        "Line_5",
+        "Line_6",
+        "Line_7"
+      ],
+      "load_idx": [
+        "PQ_1",
+        "PQ_2",
+        "PQ_3"
+      ],
+      "formulation_edit": {
+        "operation": "replace_generator_with_ibr",
+        "generator_idx": "PV_1",
+        "device_change": "disable PV_1; add an IBR at the same bus",
+        "variables": [
+          "pibr (IBR active-power dispatch)",
+          "pcurt (curtailment)"
+        ],
+        "constraints": [
+          "0 <= pibr <= available_power",
+          "pibr + pcurt = available_power",
+          "Cibr @ pibr enters nodal power balance"
+        ],
+        "objective_terms": [
+          "dispatch_cost * pibr",
+          "curtailment_cost * pcurt"
+        ],
+        "parameters": {
+          "generator_idx": "PV_1",
+          "available_power": 1.0,
+          "dispatch_cost": 1.0,
+          "curtailment_cost": 20.0
+        },
+        "target_position": 0,
+        "dcp": true,
+        "bus_idx": 0,
+        "scope": "single-period active-power dispatch, no dynamic or reactive-power model"
+      },
+      "ibr_idx": [
+        "IBR_PV_1"
+      ],
+      "verification": {
+        "passed": true,
+        "tolerance": 1e-06,
+        "residuals": {
+          "nodal_balance_pu": 3.0531133177191805e-14,
+          "availability_pu": 1.1102230246251565e-16,
+          "old_generator_pu": 1.9153156334330305e-13,
+          "ibr_bounds_pu": 0.0,
+          "objective": 0.0
+        },
+        "objective_terms": {
+          "conventional": 8.674966452428054,
+          "ibr_dispatch": 0.9999999999750756,
+          "curtailment": 4.984847691817669e-10
+        },
+        "claim": "independent nodal balance, availability, replacement and objective checks"
+      }
+    },
+    "highs_objective": 9.674966450909263,
+    "curtailment_low_penalty": 0.9999999999996206,
+    "curtailment_high_penalty": 3.622529757601141e-11,
+    "web_result": {
+      "routine": "DCOPF",
+      "family": "dcopf",
+      "case": "pjm5bus_demo",
+      "case_label": "PJM 5-bus (demo)",
+      "solver": "CLARABEL",
+      "converged": true,
+      "exit_code": 0,
+      "objective": 9.674966452901614,
+      "violations": [
+        [
+          "Line Line_4 loading",
+          "100.0%",
+          "WARN"
+        ],
+        [
+          "nodal_balance_pu",
+          "3.053e-14",
+          "OK"
+        ],
+        [
+          "availability_pu",
+          "1.110e-16",
+          "OK"
+        ],
+        [
+          "old_generator_pu",
+          "1.915e-13",
+          "OK"
+        ],
+        [
+          "ibr_bounds_pu",
+          "0.000e+00",
+          "OK"
+        ],
+        [
+          "objective",
+          "0.000e+00",
+          "OK"
+        ]
+      ],
+      "plots": {
+        "pg": "generated/dcopf_pg_20260914_083233.png",
+        "plf": "generated/dcopf_plf_20260914_083233.png",
+        "pd": "generated/dcopf_pd_20260914_083233.png"
+      },
+      "info": {
+        "loaded": true,
+        "case_path": "/Users/jyin/miniforge3/envs/llm-ams/lib/python3.12/site-packages/ams/cases/5bus/pjm5bus_demo.xlsx",
+        "n_bus": 5,
+        "n_line": 7,
+        "n_pq": 3,
+        "n_pv": 4,
+        "n_slack": 1,
+        "n_staticgen": 5,
+        "load_idx": [
+          "PQ_1",
+          "PQ_2",
+          "PQ_3"
+        ],
+        "gen_idx": [
+          "PV_1",
+          "PV_3",
+          "PV_5",
+          "PV_2",
+          "Slack_4"
+        ],
+        "line_idx": [
+          "Line_1",
+          "Line_2",
+          "Line_3",
+          "Line_4",
+          "Line_5",
+          "Line_6",
+          "Line_7"
+        ]
+      },
+      "pibr": [
+        0.9999999999750756
+      ],
+      "pcurt": [
+        2.4924238459088342e-11
+      ],
+      "pg": [
+        1.9153156334330305e-13,
+        1.253436707880846,
+        0.6000000001066191,
+        5.1465632929762295,
+        1.9999999990611863
+      ],
+      "formulation_edit": {
+        "operation": "replace_generator_with_ibr",
+        "generator_idx": "PV_1",
+        "device_change": "disable PV_1; add an IBR at the same bus",
+        "variables": [
+          "pibr (IBR active-power dispatch)",
+          "pcurt (curtailment)"
+        ],
+        "constraints": [
+          "0 <= pibr <= available_power",
+          "pibr + pcurt = available_power",
+          "Cibr @ pibr enters nodal power balance"
+        ],
+        "objective_terms": [
+          "dispatch_cost * pibr",
+          "curtailment_cost * pcurt"
+        ],
+        "parameters": {
+          "generator_idx": "PV_1",
+          "available_power": 1.0,
+          "dispatch_cost": 1.0,
+          "curtailment_cost": 20.0
+        },
+        "target_position": 0,
+        "dcp": true,
+        "bus_idx": 0,
+        "scope": "single-period active-power dispatch, no dynamic or reactive-power model"
+      },
+      "verification": {
+        "passed": true,
+        "tolerance": 1e-06,
+        "residuals": {
+          "nodal_balance_pu": 3.0531133177191805e-14,
+          "availability_pu": 1.1102230246251565e-16,
+          "old_generator_pu": 1.9153156334330305e-13,
+          "ibr_bounds_pu": 0.0,
+          "objective": 0.0
+        },
+        "objective_terms": {
+          "conventional": 8.674966452428054,
+          "ibr_dispatch": 0.9999999999750756,
+          "curtailment": 4.984847691817669e-10
+        },
+        "claim": "independent nodal balance, availability, replacement and objective checks"
+      }
+    }
+  }
+}

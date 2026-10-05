@@ -98,6 +98,7 @@ def case_io_agent(state: State, llm, prompts, ams_ctx):
         "line_off": [],
         "line_rate_overrides": {},
         "disabled_constraints": [],
+        "formulation_edit": None,
     })
 
     label = res.entry.key if res.entry else info["case_path"]

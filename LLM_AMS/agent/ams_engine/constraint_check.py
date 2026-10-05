@@ -60,6 +60,9 @@ def check_constraints(ams_ctx, results: dict) -> List[Tuple[str, str, str]]:
             gen_idx = list(ss.StaticGen.idx.v)
             pmax = np.asarray(ss.StaticGen.pmax.v, dtype=float)
             pmin = np.asarray(ss.StaticGen.pmin.v, dtype=float)
+            online = np.asarray(ss.StaticGen.get(src="u", idx=gen_idx, attr="v"), dtype=float)
+            pmax = pmax * online
+            pmin = pmin * online
             pg_max = _max_over_time(pg)
             pg_min = _min_over_time(pg)
             for i, idx_str in enumerate(gen_idx):
@@ -127,6 +130,12 @@ def check_constraints(ams_ctx, results: dict) -> List[Tuple[str, str, str]]:
                     items.append((label, f"{total:.4f} pu", SEV_OK))
         except Exception:
             pass
+
+    if results.get("verification"):
+        v = results["verification"]
+        for name, value in v["residuals"].items():
+            items.append((name, f"{value:.3e}", SEV_OK if value <= v["tolerance"] else SEV_VIOL))
+        return items
 
     # --- Power balance residual ---
     try:

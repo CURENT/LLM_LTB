@@ -22,7 +22,7 @@ def make_llm(provider: str = "ollama"):
         return llm
     model = os.getenv("OLLAMA_MODEL", "llama3.1:8b")
     base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-    llm = ChatOllama(model=model, base_url=base_url)
+    llm = ChatOllama(model=model, base_url=base_url, temperature=0)
     llm._model_name = model
     return llm
 

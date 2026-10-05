@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+.r1 {color: #008000; text-decoration-color: #008000; font-weight: bold}
+.r2 {color: #00ff00; text-decoration-color: #00ff00; font-weight: bold}
+.r3 {color: #800080; text-decoration-color: #800080; font-weight: bold}
+.r4 {color: #008080; text-decoration-color: #008080; font-weight: bold}
+.r5 {color: #33761f; text-decoration-color: #33761f; font-weight: bold}
+.r6 {color: #808080; text-decoration-color: #808080}
+.r7 {color: #33761f; text-decoration-color: #33761f}
+.r8 {color: #c0c0c0; text-decoration-color: #c0c0c0; font-weight: bold}
+.r9 {color: #808000; text-decoration-color: #808000}
+.r10 {color: #c0c0c0; text-decoration-color: #c0c0c0}
+.r11 {font-weight: bold}
+.r12 {color: #008080; text-decoration-color: #008080; background-color: #000000; font-weight: bold}
+body {
+    color: #000000;
+    background-color: #ffffff;
+}
+</style>
+</head>
+<body>
+    <pre style="font-family:Menlo,'DejaVu Sans Mono',consolas,'Courier New',monospace"><code style="font-family:inherit"><span class="r1">CLI RUN: python main.py   [Ollama llama3.</span><span class="r2">1:8b</span><span class="r1"> </span><span class="r3">/</span><span class="r1"> PJM </span><span class="r4">5</span><span class="r1">-bus </span><span class="r3">/</span><span class="r1"> DCOPF </span><span class="r3">/</span><span class="r1"> CLARABEL]</span>
+  <span class="r5">❯ Message ▸</span>  Replace PV_1 with an IBR with available power <span class="r4">1</span> pu, dispatch cost <span class="r4">1</span> dollar per pu, curtailment penalty <span class="r4">20</span> 
+dollars per pu.
+  <span class="r6">→ classifying message…</span>
+  <span class="r6">→ routing…</span>
+  <span class="r6">→ formulate…</span>
+
+Compiled IBR replacement for PV_1: disabled the conventional unit; added pibr and pcurt; added availability   
+and nodal-injection constraints; added dispatch and curtailment costs. DCP check: passed. Bus: 0. Available   
+power: 1.0 pu. Dispatch cost: 1.0 dollars/pu. Curtailment penalty: 20.0 dollars/pu. Active-power scheduling   
+equivalent only; no dynamic inverter or reactive-power model.                                                 
+
+<span class="r7">┌─ </span><span class="r6">case </span><span class="r8">…/ams/cases/5bus/pjm5bus_demo.xlsx</span><span class="r6">  ·  routine </span><span class="r8">DCOPF</span><span class="r6">  ·  solver </span><span class="r8">CLARABEL</span><span class="r6">  ·  mods 0</span><span class="r7"> ─┐</span>
+  <span class="r5">❯ Message ▸</span>  Solve
+  <span class="r6">→ classifying message…</span>
+  <span class="r6">→ routing…</span>
+  <span class="r6">→ solving routine…</span>
+<span class="r5">┌─ Constraint check</span>
+<span class="r7">────────────────────────────────────────────────────────────────────────────</span>
+<span class="r9">  ! </span><span class="r8">Line Line_4 loading             </span><span class="r10">  100.0%                      </span><span class="r9">WARN</span>
+<span class="r5">  ✓ </span><span class="r8">nodal_balance_pu                </span><span class="r10">  3.053e-14                   </span><span class="r5">OK</span>
+<span class="r5">  ✓ </span><span class="r8">availability_pu                 </span><span class="r10">  1.110e-16                   </span><span class="r5">OK</span>
+<span class="r5">  ✓ </span><span class="r8">old_generator_pu                </span><span class="r10">  1.915e-13                   </span><span class="r5">OK</span>
+<span class="r5">  ✓ </span><span class="r8">ibr_bounds_pu                   </span><span class="r10">  0.000e+00                   </span><span class="r5">OK</span>
+<span class="r5">  ✓ </span><span class="r8">objective                       </span><span class="r10">  0.000e+00                   </span><span class="r5">OK</span>
+<span class="r7">────────────────────────────────────────────────────────────────────────────</span>
+
+
+<span class="r11">DCOPF</span> solved with <span class="r11">CLARABEL</span> (exit_code=0, converged=True).                                                     
+
+<span class="r11"> • </span>Objective: <span class="r12">9.674966</span>                                                                                        
+<span class="r11"> • </span>pg (pu):                                                                                                   
+<span class="r11">    • </span>PV_1: 0.0000                                                                                            
+<span class="r11">    • </span>PV_3: 1.2534                                                                                            
+<span class="r11">    • </span>PV_5: 0.6000                                                                                            
+<span class="r11">    • </span>PV_2: 5.1466                                                                                            
+<span class="r11">    • </span>Slack_4: 2.0000                                                                                         
+<span class="r11"> • </span>pibr (pu):                                                                                                 
+<span class="r11">    • </span>IBR_PV_1: 1.0000                                                                                        
+<span class="r11"> • </span>pcurt (pu):                                                                                                
+<span class="r11">    • </span>IBR_PV_1: 0.0000                                                                                        
+<span class="r11"> • </span>Independent verification: <span class="r11">PASS</span>                                                                             
+<span class="r11"> • </span>Maximum nodal residual: <span class="r12">3.05e-14</span> pu                                                                        
+<span class="r11"> • </span>Objective components: conventional <span class="r12">8.674966</span>, IBR <span class="r12">1.000000</span>, curtailment <span class="r12">0.000000</span>                            
+<span class="r11"> • </span>plf (pu):                                                                                                  
+<span class="r11">    • </span>Line_1: -0.0733                                                                                         
+<span class="r11">    • </span>Line_2: 0.8904                                                                                          
+<span class="r11">    • </span>Line_3: 0.2562                                                                                          
+<span class="r11">    • </span>Line_4: 2.0000                                                                                          
+<span class="r11">    • </span>Line_5: 0.2534                                                                                          
+<span class="r11">    • </span>Line_6: -0.8562                                                                                         
+<span class="r11">    • </span>Line_7: -0.0733                                                                                         
+<span class="r11"> • </span>pd (pu):                                                                                                   
+<span class="r11">    • </span>PQ_1: 3.0000                                                                                            
+<span class="r11">    • </span>PQ_2: 3.0000                                                                                            
+<span class="r11">    • </span>PQ_3: 4.0000                                                                                            
+<span class="r11"> • </span>pg plot: <span class="r12">generated/dcopf_pg_20260914_082802.png</span>                                                            
+<span class="r11"> • </span>plf plot: <span class="r12">generated/dcopf_plf_20260914_082802.png</span>                                                          
+<span class="r11"> • </span>pd plot: <span class="r12">generated/dcopf_pd_20260914_082802.png</span>                                                            
+
+<span class="r7">┌─ </span><span class="r6">case </span><span class="r8">…/ams/cases/5bus/pjm5bus_demo.xlsx</span><span class="r6">  ·  routine </span><span class="r8">DCOPF</span><span class="r6">  ·  solver </span><span class="r8">CLARABEL</span><span class="r6">  ·  mods 0</span><span class="r7"> ─┐</span>
+  <span class="r5">❯ Message ▸</span>  quit
+<span class="r5">[✓] Goodbye!</span>
+</code></pre>
+</body>
+</html>

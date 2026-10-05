@@ -1,0 +1,63 @@
+CLI RUN: python main.py   [Ollama llama3.1:8b / PJM 5-bus / DCOPF / CLARABEL]
+  ❯ Message ▸  Replace PV_1 with an IBR with available power 1 pu, dispatch cost 1 dollar per pu, curtailment penalty 20 
+dollars per pu.
+  → classifying message…
+  → routing…
+  → formulate…
+
+Compiled IBR replacement for PV_1: disabled the conventional unit; added pibr and pcurt; added availability   
+and nodal-injection constraints; added dispatch and curtailment costs. DCP check: passed. Bus: 0. Available   
+power: 1.0 pu. Dispatch cost: 1.0 dollars/pu. Curtailment penalty: 20.0 dollars/pu. Active-power scheduling   
+equivalent only; no dynamic inverter or reactive-power model.                                                 
+
+┌─ case …/ams/cases/5bus/pjm5bus_demo.xlsx  ·  routine DCOPF  ·  solver CLARABEL  ·  mods 0 ─┐
+  ❯ Message ▸  Solve
+  → classifying message…
+  → routing…
+  → solving routine…
+┌─ Constraint check
+────────────────────────────────────────────────────────────────────────────
+  ! Line Line_4 loading               100.0%                      WARN
+  ✓ nodal_balance_pu                  3.053e-14                   OK
+  ✓ availability_pu                   1.110e-16                   OK
+  ✓ old_generator_pu                  1.915e-13                   OK
+  ✓ ibr_bounds_pu                     0.000e+00                   OK
+  ✓ objective                         0.000e+00                   OK
+────────────────────────────────────────────────────────────────────────────
+
+
+DCOPF solved with CLARABEL (exit_code=0, converged=True).                                                     
+
+ • Objective: 9.674966                                                                                        
+ • pg (pu):                                                                                                   
+    • PV_1: 0.0000                                                                                            
+    • PV_3: 1.2534                                                                                            
+    • PV_5: 0.6000                                                                                            
+    • PV_2: 5.1466                                                                                            
+    • Slack_4: 2.0000                                                                                         
+ • pibr (pu):                                                                                                 
+    • IBR_PV_1: 1.0000                                                                                        
+ • pcurt (pu):                                                                                                
+    • IBR_PV_1: 0.0000                                                                                        
+ • Independent verification: PASS                                                                             
+ • Maximum nodal residual: 3.05e-14 pu                                                                        
+ • Objective components: conventional 8.674966, IBR 1.000000, curtailment 0.000000                            
+ • plf (pu):                                                                                                  
+    • Line_1: -0.0733                                                                                         
+    • Line_2: 0.8904                                                                                          
+    • Line_3: 0.2562                                                                                          
+    • Line_4: 2.0000                                                                                          
+    • Line_5: 0.2534                                                                                          
+    • Line_6: -0.8562                                                                                         
+    • Line_7: -0.0733                                                                                         
+ • pd (pu):                                                                                                   
+    • PQ_1: 3.0000                                                                                            
+    • PQ_2: 3.0000                                                                                            
+    • PQ_3: 4.0000                                                                                            
+ • pg plot: generated/dcopf_pg_20260914_082802.png                                                            
+ • plf plot: generated/dcopf_plf_20260914_082802.png                                                          
+ • pd plot: generated/dcopf_pd_20260914_082802.png                                                            
+
+┌─ case …/ams/cases/5bus/pjm5bus_demo.xlsx  ·  routine DCOPF  ·  solver CLARABEL  ·  mods 0 ─┐
+  ❯ Message ▸  quit
+[✓] Goodbye!

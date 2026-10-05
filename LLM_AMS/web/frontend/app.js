@@ -12,6 +12,10 @@ const API = {
   chat: (body) => post("api/chat", body),
   llm: () => fetch("api/llm").then(j),
   setLlm: (body) => post("api/llm", body),
+  parameters: (r, c) => fetch(`api/parameters?routine=${encodeURIComponent(r)}&case=${encodeURIComponent(c)}`).then(j),
+  applyParameter: (body) => post("api/parameters/apply", body),
+  promptParameter: (body) => post("api/parameters/prompt", body),
+  resetParameters: (body) => post("api/parameters/reset", body),
 };
 
 async function j(resp) {
@@ -41,6 +45,7 @@ const state = {
   busy: false,
   solved: false,       // a solve has run for the current routine/case
   reportOpen: false,
+  parameters: null,
 };
 
 // ---------------------------------------------------------------- DOM utils
@@ -291,6 +296,198 @@ function renderCase(payload) {
   }
 }
 
+// ---------------------------------------------------------------- parameters panel
+function optionLabel(item, fields) {
+  return fields
+    .map((f) => item[f] !== undefined && item[f] !== null ? `${f}=${typeof item[f] === "number" ? Number(item[f].toPrecision(7)) : item[f]}` : "")
+    .filter(Boolean)
+    .join(" · ");
+}
+
+function renderParamSelect(id, items, fields) {
+  return `<select id="${id}">` + (items || []).map((item) => {
+    const idx = item.idx;
+    return `<option value="${esc(idx)}">${item.label ? `${esc(item.label)} (${esc(idx)})` : `${esc(idx)} — ${esc(optionLabel(item, fields))}`}</option>`;
+  }).join("") + `</select>`;
+}
+
+function renderOptionalSelect(id, items, fields, noneLabel = "None") {
+  return `<select id="${id}"><option value="">${esc(noneLabel)}</option>` +
+    (items || []).map((item) => {
+      const idx = item.idx;
+      return `<option value="${esc(idx)}">${esc(idx)} — ${esc(optionLabel(item, fields))}</option>`;
+    }).join("") + `</select>`;
+}
+
+function infoIcon(text) {
+  return `<span class="param-info" title="${esc(text)}">i</span>`;
+}
+
+const parameterRanges = new Map();
+const signedPercent = value => `${Number(value) >= 0 ? "+" : ""}${Number(value)}%`;
+
+function renderParameters(payload) {
+  state.parameters = payload;
+  const body = $("parameters-body");
+  if (!body) return;
+  const opts = payload.options || {};
+  const controls = (payload.config?.controls || []).filter(c => c.enabled !== false &&
+    (!c.requires_constraints || (opts.constraints || []).some(r => c.requires_constraints.includes(r.idx))));
+  body.innerHTML = controls.map(c => {
+    const saved = payload.values?.[c.id] || {};
+    const wrongRoutine = c.routines && !c.routines.includes(state.routine);
+    const emptySource = Object.values(c.parameters).some(s => s.source && !(opts[s.source] || []).length);
+    const unavailable = wrongRoutine || emptySource;
+    const fields = Object.entries(c.parameters).map(([name, spec]) => {
+      const id = `param-${c.id}-${name}`;
+      const value = saved[name] ?? spec.default ?? "";
+      let input;
+      if (spec.type === "select") {
+        const rows = opts[spec.source] || [];
+        input = renderParamSelect(id, rows, Object.keys(rows[0] || {}).filter(k => k !== "idx"));
+        input += `<div class="parameter-current" id="${id}-current"></div>`;
+      } else if (spec.type === "boolean") {
+        input = `<input id="${id}" type="checkbox" ${value ? "checked" : ""}>`;
+      } else {
+        const bounds = parameterRanges.get(id) || { min: spec.slider_min ?? spec.min, max: spec.slider_max ?? spec.max };
+        if (spec.type === "range") {
+          bounds.min = Math.min(bounds.min, Number(value));
+          bounds.max = Math.max(bounds.max, Number(value));
+          parameterRanges.set(id, bounds);
+        }
+        input = `<input id="${id}" type="${spec.type === "range" ? "range" : "number"}" value="${esc(value)}"
+          ${(spec.type === "range" ? bounds.min : spec.min) !== undefined ? `min="${spec.type === "range" ? bounds.min : spec.min}"` : ""}
+          ${(spec.type === "range" ? bounds.max : spec.max) !== undefined ? `max="${spec.type === "range" ? bounds.max : spec.max}"` : ""}
+          step="${spec.step || "any"}">`;
+        if (spec.type === "range") {
+          input += `<output for="${id}">${signedPercent(value)}</output><div class="parameter-range-bounds">` +
+            ["min", "max"].map(bound => `<label for="${id}-${bound}">${bound === "min" ? "Min" : "Max"} (%)
+              <input id="${id}-${bound}" type="number" required step="${spec.step || "any"}" value="${bounds[bound]}"
+                ${spec.min !== undefined ? `min="${spec.min}"` : ""} ${spec.max !== undefined ? `max="${spec.max}"` : ""}></label>`).join("") +
+            `</div><span id="${id}-error" class="parameter-range-error" role="alert"></span>`;
+        }
+      }
+      return `<div class="param-field"><label for="${id}">${esc(spec.label || name.replaceAll("_", " "))} ${esc(spec.unit || "")}</label>${input}</div>`;
+    }).join("");
+    return `<fieldset data-operation="${c.id}" ${unavailable ? "disabled" : ""}>
+      <legend>${esc(c.label)} ${infoIcon(c.description)}</legend>
+      ${unavailable ? `<p class="control-note">${wrongRoutine ? esc(c.routines.join(", ")) : "No eligible devices in this case."}</p>` : ""}${fields}</fieldset>`;
+  }).join("");
+  controls.forEach(c => {
+    const fieldset = body.querySelector(`[data-operation="${c.id}"]`);
+    Object.entries(c.parameters).forEach(([name, spec]) => {
+      const input = $(`param-${c.id}-${name}`);
+      if (spec.type === "select" && (opts[spec.source] || []).some(r => String(r.idx) === String(payload.values?.[c.id]?.[name]))) input.value = payload.values[c.id][name];
+      const syncLive = () => {
+        const [key, source] = Object.entries(c.parameters).find(([, s]) => s.type === "select") || [];
+        const row = key && (opts[source.source] || []).find(r => r.idx === $(`param-${c.id}-${key}`).value);
+        if (!row) return;
+        $(`param-${c.id}-${key}-current`).textContent = row.label
+          ? `${row.label} (${row.idx}) - ${row.enabled ? "Enabled" : "Disabled"}`
+          : optionLabel(row, Object.keys(row).filter(k => k !== "idx"));
+        const live = {online: Boolean(row.u), enabled: row.enabled, rate_a: row.rate_a};
+        for (const [field, value] of Object.entries(live)) {
+          const el = $(`param-${c.id}-${field}`);
+          if (el && value !== undefined) { if (el.type === "checkbox") el.checked = value; else el.value = value; }
+        }
+      };
+      if (spec.type === "select") { syncLive(); input.addEventListener("change", syncLive); }
+      if (spec.type === "range") {
+        const minInput = $(`${input.id}-min`);
+        const maxInput = $(`${input.id}-max`);
+        const updateRange = () => {
+          minInput.setCustomValidity("");
+          maxInput.setCustomValidity("");
+          const min = minInput.valueAsNumber;
+          const max = maxInput.valueAsNumber;
+          const valid = minInput.checkValidity() && maxInput.checkValidity() && min < max;
+          const error = valid ? "" : `Min must be less than Max; use valid ${spec.step || "numeric"}-step bounds${spec.min !== undefined ? ` at or above ${spec.min}%` : ""}.`;
+          $(`${input.id}-error`).textContent = error;
+          if (!valid) { minInput.setCustomValidity(error); return; }
+          const before = input.value;
+          input.min = min;
+          input.max = max;
+          parameterRanges.set(input.id, { min, max });
+          input.nextElementSibling.textContent = signedPercent(input.value);
+          if (input.value !== before) fieldset.dataset.dirty = "true";
+        };
+        minInput.addEventListener("input", updateRange);
+        maxInput.addEventListener("input", updateRange);
+      }
+      input.addEventListener("input", () => {
+        fieldset.dataset.dirty = "true";
+        if (spec.type === "range") input.nextElementSibling.textContent = signedPercent(input.value);
+      });
+      input.addEventListener("change", () => { fieldset.dataset.dirty = "true"; });
+    });
+  });
+}
+
+async function applyParameterForm() {
+  if (state.busy || !state.parameters) return;
+  for (const input of $("parameters-body").querySelectorAll(".parameter-range-bounds input")) {
+    if (!input.reportValidity()) return;
+  }
+  state.busy = true;
+  setStatus("applying parameter changes...");
+  const actions = [];
+  for (const c of state.parameters.config.controls) {
+    const form = document.querySelector(`[data-operation="${c.id}"]`);
+    if (!form || form.disabled || form.dataset.dirty !== "true") continue;
+    const parameters = {};
+    for (const [name, spec] of Object.entries(c.parameters)) {
+      const el = $(`param-${c.id}-${name}`);
+      parameters[name] = spec.type === "boolean" ? el.checked :
+        ["range", "number"].includes(spec.type) ? (el.value === "" ? null : Number(el.value)) : el.value;
+    }
+    actions.push({ operation: c.id, parameters });
+  }
+  if (!actions.length) {
+    setStatus("no parameter changes selected", "ok");
+    releaseBusy();
+    return;
+  }
+  try {
+    const payload = await post("api/parameters/batch", { actions, routine: state.routine, case: state.case });
+    if (payload.result.ok) renderParameters(payload.parameters);
+    await refreshAfterParameter(payload.result);
+  } catch (err) {
+    setStatus(err.message, "err");
+  } finally {
+    releaseBusy();
+  }
+}
+
+async function resetParameters() {
+  if (state.busy) return;
+  state.busy = true;
+  setStatus("resetting parameters…");
+  try {
+    const payload = await API.resetParameters({ routine: state.routine, case: state.case });
+    renderParameters(payload.parameters);
+    await refreshAfterParameter(payload.result);
+  } catch (err) {
+    setStatus(`error: ${err.message}`, "err");
+  } finally {
+    releaseBusy();
+  }
+}
+
+async function refreshAfterParameter(result) {
+  if (!result || !result.ok) {
+    setStatus(result ? result.message : "parameter change failed", "err");
+    return;
+  }
+  const [f, c] = await Promise.all([
+    API.formulation(state.routine),
+    API.case(state.routine, state.case),
+  ]);
+  renderFormulation(f);
+  renderCase(c);
+  resetResults();
+  setStatus(result.message, "ok");
+}
+
 // ---------------------------------------------------------------- orchestration
 async function selectRoutine(name) {
   state.routine = name;
@@ -350,14 +547,16 @@ async function refresh() {
   _refreshPending = false;
   setStatus(`loading ${state.routine}…`);
   try {
-    const [f, c, s] = await Promise.all([
+    const [f, c, s, p] = await Promise.all([
       API.formulation(state.routine),
       API.case(state.routine, state.case),
       API.solvers(state.routine).catch(() => ({ solvers: [], default: "CLARABEL" })),
+      API.parameters(state.routine, state.case),
     ]);
     renderFormulation(f);
     renderCase(c);
     renderSolvers(s);
+    renderParameters(p);
     resetResults();             // prior solve is stale for the new routine/case
     setStatus(`${state.routine} · ${state.case}`, "ok");
   } catch (err) {
@@ -428,6 +627,12 @@ function renderResults(payload) {
   ];
   if (payload.objective !== null && payload.objective !== undefined) {
     metrics.unshift(metricPill("objective", Number(payload.objective).toFixed(4)));
+  }
+  if (payload.pibr) metrics.push(metricPill("IBR dispatch (pu)", Number(payload.pibr[0]).toFixed(6)));
+  if (payload.pcurt) metrics.push(metricPill("curtailment (pu)", Number(payload.pcurt[0]).toFixed(6)));
+  if (payload.verification) {
+    metrics.push(metricPill("independent checks", payload.verification.passed ? "PASS" : "FAIL"));
+    metrics.push(metricPill("nodal residual (pu)", Number(payload.verification.residuals.nodal_balance_pu).toExponential(2)));
   }
   if (viol.length) metrics.push(metricPill("violations", String(viol.length)));
   else if (warn.length) metrics.push(metricPill("warnings", String(warn.length)));
@@ -640,6 +845,12 @@ async function sendChat() {
   if (res && res.session) {
     try { await applyAgentSession(res.session); } catch (e) { console.error(e); }
   }
+  if (res && res.ok) {
+    renderFormulation(await API.formulation(state.routine));
+    renderCase(await API.case(state.routine, state.case));
+    renderParameters(await API.parameters(state.routine, state.case));
+    if (!res.results) resetResults();
+  }
   // If the agent produced a solve, refresh the results card to match.
   if (res && res.results) {
     try { await runSolve(); } catch (_) {}
@@ -689,6 +900,8 @@ function wireEvents() {
   $("chat-text").addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendChat(); }
   });
+  $("param-apply").addEventListener("click", applyParameterForm);
+  $("param-reset").addEventListener("click", resetParameters);
 }
 
 // Drag the divider between the workspace and the report panel to resize it.

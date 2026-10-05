@@ -1,4 +1,4 @@
-"""Route 6: solve the active routine.
+"""Route 7: solve the active routine.
 
 Handles both:
 - Single-period routines (DCOPF / RTED / DCPF / ACOPF / DOPF) — 1-D ``pg``/``plf``
@@ -155,6 +155,15 @@ def solve_agent(state: State, llm, prompts, ams_ctx):
         lines.append(f"- Objective: `{results['objective']:.6f}`")
 
     lines += _format_var("pg",  results.get("pg"),  results.get("gen_idx", []))
+    lines += _format_var("pibr", results.get("pibr"), results.get("ibr_idx", []))
+    lines += _format_var("pcurt", results.get("pcurt"), results.get("ibr_idx", []))
+    if results.get("verification"):
+        v = results["verification"]
+        lines.append(f"- Independent verification: **{'PASS' if v['passed'] else 'FAIL'}**")
+        lines.append(f"- Maximum nodal residual: `{v['residuals']['nodal_balance_pu']:.2e}` pu")
+        lines.append(f"- Objective components: conventional `{v['objective_terms']['conventional']:.6f}`, "
+                     f"IBR `{v['objective_terms']['ibr_dispatch']:.6f}`, "
+                     f"curtailment `{v['objective_terms']['curtailment']:.6f}`")
     lines += _format_var("plf", results.get("plf"), results.get("line_idx", []))
     lines += _format_var("pd",  results.get("pd"),  results.get("load_idx", []))
 
@@ -169,7 +178,7 @@ def solve_agent(state: State, llm, prompts, ams_ctx):
     reply = AIMessage(content=content)
     nr = NodeResponse(
         node_type="solve",
-        success=True,
+        success=bool(results.get("converged")),
         data={"routine": results["routine"], "solver": results["solver"],
               "objective": results.get("objective"), "converged": results.get("converged")},
         message=content,

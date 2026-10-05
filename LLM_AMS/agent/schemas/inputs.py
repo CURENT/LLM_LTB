@@ -39,3 +39,5 @@ class Inputs(BaseModel):
 
     # Line.alter / set rate_a — keyed by line idx
     line_rate_overrides: Dict[str, float] = Field(default_factory=dict)
+
+    formulation_edit: Optional[Dict] = None

@@ -13,6 +13,7 @@ mutate the system in place, mirroring the ex2.ipynb workflow:
 """
 
 import os
+import copy
 from typing import Any, Dict, List, Optional
 
 import ams
@@ -25,6 +26,7 @@ from agent.ams_engine.routines import (
     resolve_routine,
     routine_family,
 )
+from agent.ams_engine.formulation_edit import IBRReplacementSpec, apply_ibr_replacement
 
 
 def resolve_case_path(case: str) -> str:
@@ -52,11 +54,13 @@ class AMSContext:
         self.system: Optional[ams.System] = None
         self.case_path: Optional[str] = None
         self.routine_name: str = "RTED"
+        self.formulation_edit = None
 
     # ---------- Route 3: case I/O ----------
     def load_case(self, case: str) -> Dict[str, Any]:
         path = resolve_case_path(case)
         self.system = ams.load(path, setup=True, no_output=True)
+        self.formulation_edit = None
         self.case_path = path
         return self.case_info()
 
@@ -87,6 +91,8 @@ class AMSContext:
         else:
             res = resolve_routine(name)
             resolved = res.name if res.name else stripped.upper()
+        if self.formulation_edit and resolved != "DCOPF":
+            raise ValueError("An IBR replacement is active in DCOPF. Reload the case before switching routines.")
         if self.system is None:
             self.routine_name = resolved
             return resolved
@@ -128,27 +134,64 @@ class AMSContext:
         if self.system is None:
             raise RuntimeError("No case loaded.")
         self.system.PQ.alter(src="p0", idx=[load_idx], value=[float(value)])
-        self.active_routine().update("pd")
+        if self.active_routine().initialized:
+            self.active_routine().update("pd")
 
     def set_gen_status(self, gen_idx: str, online: bool) -> None:
+        if self.formulation_edit and gen_idx == self.formulation_edit["generator_idx"]:
+            raise ValueError("This generator has been replaced by an IBR. Reload the case to restore it.")
         if self.system is None:
             raise RuntimeError("No case loaded.")
         self.system.StaticGen.set(src="u", idx=gen_idx, attr="v", value=1 if online else 0)
-        self.active_routine().update()
+        if self.active_routine().initialized:
+            self.active_routine().update()
 
     def set_line_status(self, line_idx: str, online: bool) -> None:
         if self.system is None:
             raise RuntimeError("No case loaded.")
         self.system.Line.alter(src="u", idx=line_idx, value=1 if online else 0)
-        self.active_routine().update()
+        if self.active_routine().initialized:
+            self.active_routine().update()
 
     def alter_line_rate(self, line_idx: str, rate_a: float) -> None:
         if self.system is None:
             raise RuntimeError("No case loaded.")
         self.system.Line.set(src="rate_a", idx=[line_idx], attr="v", value=[float(rate_a)])
-        self.active_routine().update("rate_a")
+        if self.active_routine().initialized:
+            self.active_routine().update("rate_a")
 
-    # ---------- Route 6: solve ----------
+    # ---------- Route 6: structural formulation edits ----------
+    def apply_formulation_edit(self, edit) -> Dict[str, Any]:
+        if self.system is None:
+            raise RuntimeError("Load a case before editing its formulation")
+        generator_idx = next((idx for idx in self.system.StaticGen.get_all_idxes()
+                              if str(idx) == str(edit.generator_idx)), edit.generator_idx)
+        spec = IBRReplacementSpec(
+            generator_idx=generator_idx,
+            available_power=float(edit.available_power),
+            dispatch_cost=float(edit.dispatch_cost),
+            curtailment_cost=float(edit.curtailment_cost),
+        )
+        if self.system is None:
+            raise RuntimeError("Load a case before editing its formulation")
+        if self.formulation_edit:
+            raise ValueError("An IBR replacement is already active. Reload the case for another scenario.")
+        # Compile on a candidate system. A failed build cannot corrupt the live session.
+        # Native solver handles cannot be pickled. Drop only their caches in
+        # the copy, keeping the original solved system untouched.
+        memo = {}
+        for routine in self.system.routines.values():
+            problem = getattr(getattr(routine, "om", None), "prob", None)
+            cache = getattr(problem, "_solver_cache", None)
+            if cache is not None:
+                memo[id(cache)] = {}
+        candidate = copy.deepcopy(self.system, memo)
+        report = apply_ibr_replacement(getattr(candidate, self.routine_name), candidate, spec)
+        self.system = candidate
+        self.formulation_edit = report
+        return report
+
+    # ---------- Route 7: solve ----------
     def solve(self, solver: str = "CLARABEL") -> Dict[str, Any]:
         if self.system is None:
             raise RuntimeError("No case loaded.")
@@ -171,7 +214,7 @@ class AMSContext:
                 out["objective"] = float(np.asarray(rtn.obj.v))
             except Exception:
                 out["objective"] = None
-        for var_name in ("pg", "plf", "pd", "pn", "aBus", "vBus", "ug"):
+        for var_name in ("pg", "pibr", "pcurt", "plf", "pd", "pn", "aBus", "vBus", "ug"):
             if hasattr(rtn, var_name):
                 try:
                     arr = np.asarray(getattr(rtn, var_name).v, dtype=float)
@@ -182,4 +225,10 @@ class AMSContext:
         out["gen_idx"] = list(self.system.StaticGen.get_all_idxes())
         out["line_idx"] = list(self.system.Line.idx.v)
         out["load_idx"] = list(self.system.PQ.idx.v)
+        if self.formulation_edit:
+            from agent.ams_engine.formulation_edit import verify_ibr_solution
+            out["formulation_edit"] = self.formulation_edit
+            out["ibr_idx"] = [f"IBR_{self.formulation_edit['generator_idx']}"]
+            if out["converged"]:
+                out["verification"] = verify_ibr_solution(rtn, self.formulation_edit, out)
         return out

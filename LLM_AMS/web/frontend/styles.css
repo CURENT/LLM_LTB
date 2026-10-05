@@ -81,7 +81,7 @@ body {
   flex: 1 1 auto;
   min-height: 0;
   display: grid;
-  grid-template-columns: 270px 1fr;
+  grid-template-columns: 330px minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr);
   gap: 22px;
   --report-w: 460px;        /* resizable width of the report column */
@@ -300,6 +300,130 @@ table.data-table tbody tr:hover td { background: #fafdff; }
   color: var(--accent-ink);
   border-radius: 6px;
   padding: 2px 8px;
+}
+
+/* ================================================================ parameters */
+.parameters-panel {
+  flex: 0 0 auto;
+  align-self: stretch;
+  max-height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 0;
+  box-shadow: none;
+  overflow: hidden;
+}
+.parameters-head {
+  flex: none;
+  padding: 22px 20px 10px;
+  border-bottom: none;
+  background: #fff;
+}
+.parameters-head h2 { margin: 0; font-size: 20px; }
+.parameters-body fieldset { min-width: 0; border: 0; border-top: 1px solid var(--line); padding: 14px 0 0; margin: 0; }
+.parameters-body legend { font-size: 14px; font-weight: 600; padding: 0 6px 0 0; }
+.parameters-body fieldset:disabled { opacity: .55; }
+.parameters-body fieldset[data-dirty="true"] legend { color: var(--accent); }
+.parameters-body .param-field { margin: 10px 0; min-width: 0; }
+.parameters-body label { text-transform: none; letter-spacing: 0; font-size: 12px; }
+.parameters-body select { max-width: 100%; text-overflow: ellipsis; }
+.parameter-current { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; line-height: 1.5; }
+.parameters-body input[type="checkbox"] { width: 18px; min-height: 18px; height: 18px; padding: 0; align-self: flex-start; }
+.parameters-body input[type="range"] { padding: 0; border: 0; min-height: 24px; accent-color: var(--accent); }
+.parameter-range-bounds { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.parameter-range-bounds label { display: grid; gap: 6px; min-width: 0; }
+.parameter-range-error { color: #ae2836; font-size: 12px; overflow-wrap: anywhere; }
+.parameter-range-error:empty { display: none; }
+.parameter-actions-bar { position: sticky; bottom: 0; z-index: 2; }
+.parameters-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 10px 20px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.param-field {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.param-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 700;
+  color: #3f4652;
+}
+.param-info {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  border: 1px solid #c6ced8;
+  border-radius: 50%;
+  color: #9aa5b4;
+  font-size: 10px;
+  font-family: Georgia, serif;
+  font-weight: 700;
+  flex: none;
+}
+.param-field select,
+.param-field input,
+.param-readonly {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #fff;
+  color: var(--ink);
+  font: 14px var(--sans);
+  padding: 10px 12px;
+  min-height: 40px;
+}
+.param-readonly {
+  background: #fbfcfe;
+  color: var(--ink-soft);
+}
+.param-field select:focus,
+.param-field input:focus {
+  outline: 2px solid var(--accent-soft);
+  border-color: var(--accent);
+}
+.segmented {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+.segmented button {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f8fbfd;
+  color: var(--ink);
+  cursor: pointer;
+  font: 12.5px var(--mono);
+  padding: 7px 8px;
+}
+.segmented button:hover,
+.segmented button.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+.parameter-actions-bar {
+  flex: none;
+  border-top: 1px solid var(--line);
+  padding: 14px 20px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  background: #fff;
 }
 
 /* ================================================================ buttons */
@@ -614,7 +738,7 @@ body.v-resizing { cursor: row-resize; user-select: none; }
 
 /* ================================================================ layout modes */
 .layout.report-open {
-  grid-template-columns: 250px minmax(0, 1fr) var(--report-w, 460px);
+  grid-template-columns: 300px minmax(0, 1fr) var(--report-w, 460px);
   max-width: 1640px;
 }
 

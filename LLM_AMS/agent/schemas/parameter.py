@@ -63,3 +63,20 @@ class SystemModification(BaseModel):
 class SystemModifications(BaseModel):
     model_config = ConfigDict(extra="forbid")
     modifications: List[SystemModification] = Field(default_factory=list)
+
+
+class FormulationEdit(BaseModel):
+    """A bounded, reviewable change to an optimization formulation."""
+
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    operation: Literal["replace_generator_with_ibr"] = "replace_generator_with_ibr"
+    generator_idx: str = Field(..., description="AMS StaticGen idx to replace, e.g. PV_1")
+    available_power: float = Field(..., gt=0, description="Maximum available IBR power in pu")
+    dispatch_cost: float = Field(default=0.0, ge=0, description="IBR dispatch cost in $/pu")
+    curtailment_cost: float = Field(default=0.0, ge=0, description="IBR curtailment penalty in $/pu")
+
+
+class FormulationEdits(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    edits: List[FormulationEdit] = Field(default_factory=list, max_length=1)
+    clarification: Optional[str] = Field(default=None, description="Ask for missing or ambiguous target, power or cost information")

@@ -1,0 +1,13 @@
+{
+  "original_sha256": "1023eade082393bb44e01660a05753cb1a48af0bb8c823e1a350f673458b0098",
+  "original_parts": 97,
+  "unchanged_original_parts": 94,
+  "changed_package_indexes_only": [
+    "ppt/presentation.xml",
+    "ppt/_rels/presentation.xml.rels",
+    "[Content_Types].xml"
+  ],
+  "original_slide_count": 11,
+  "final_slide_count": 15,
+  "original_slides_and_all_assets_byte_identical": true
+}

@@ -1,4 +1,4 @@
-"""All system + user prompts for LLM-AMS Phase 1 (Routes 1-6).
+"""All system + user prompts for LLM-AMS routes.
 
 Organized like pv-curve-llm: large string constants, single ``get_prompts()``
 factory that strips and formats them.
@@ -6,7 +6,7 @@ factory that strips and formats them.
 
 # ---------------------------------------------------------------- Classifier
 CLASSIFIER_SYSTEM = """
-You classify the user's message into ONE of six AMS routes.
+You classify the user's message into ONE of seven AMS routes.
 
 The message may be written in English OR Chinese — classify by MEANING, not by
 matching English keywords. (e.g. "换成ieee39" = switch case to ieee39 → case_io;
@@ -26,6 +26,9 @@ matching English keywords. (e.g. "换成ieee39" = switch case to ieee39 → case
 
 - **modify**: Change the PHYSICAL system — load values, generator on/off, line on/off, line rate_a.
   Examples: "Change load PQ_1 to 3.2", "Trip generator PV_1", "Trip line Line_2", "Restore PV_1", "Set Line_3 rate to 0.6"
+
+- **formulate**: Change the optimization structure with a supported template.
+  Examples: "Replace PV_1 with an IBR with 1.0 pu available power and a $20/pu curtailment penalty", "把PV_1替换成IBR，可用功率1.0 pu，弃电成本20"
 
 - **solve**: Run the active routine (RTED, DCOPF, ED, UC, ...).
   Examples: "Solve", "Run RTED", "运行", "求解", "Run the dispatch", "Solve with CLARABEL"
@@ -163,6 +166,33 @@ Rules:
 """.strip()
 
 
+FORMULATE_EXTRACT_SYSTEM = """
+Extract ONE supported structural formulation edit from the user's request.
+
+Supported operation: replace_generator_with_ibr. Required fields are the exact
+generator_idx and available_power in pu. Optional non-negative fields are
+dispatch_cost and curtailment_cost in $/pu; use 0 only when the user omits them.
+Do not invent a generator identifier or capacity. If either is missing, return
+an empty edits list and a concise clarification question. Do not convert MW
+or $/MWh without a supplied system base; ask for pu and $/pu instead.
+
+The deterministic compiler disables the selected conventional generator, adds
+pibr and pcurt variables, connects the IBR at the same bus, adds availability
+constraints, and adds both cost terms. It currently supports nodal DCOPF only.
+If the user says generator 1 but only PV_1 etc. exist, ask for the exact ID
+rather than guessing an ordinal. Never treat missing capacity as 1 pu.
+
+When the exact ID and numeric power are present, return one edit, not an empty list.
+Example request: Replace PV_1 with an IBR with available power 1 pu, dispatch cost
+1 dollar per pu, curtailment penalty 20 dollars per pu.
+Example fields: generator_idx=PV_1, available_power=1, dispatch_cost=1, curtailment_cost=20.
+
+Current routine: {routine}
+Available generators: {gen_idx}
+Active formulation edit: {active_edit}
+""".strip()
+
+
 # ----------------------------------------------------- Planner (compound queries)
 PLANNER_SYSTEM = """
 Decompose a multi-step AMS request into an ordered list of single-route steps.
@@ -176,16 +206,21 @@ Each step picks ONE route action:
 - case_io
 - configure
 - modify
+- formulate
 - solve
 
 Rules:
 1. Preserve user order.
 2. Each step's ``content`` MUST be a complete natural-language instruction
    the corresponding route can execute independently.
+   Keep an IBR replacement and ALL its available-power, dispatch-cost and
+   curtailment-penalty values together in ONE formulate step. Never omit numbers.
 3. Switching the CASE (loading a different case file/alias) is ``case_io``.
    Switching the active ROUTINE (RTED, DCOPF, ED, UC, ...) is ``configure``.
    So "run UC on ieee39" = load ieee39 (case_io) → set routine to UC
    (configure) → solve.
+   Replacing a generator with an IBR or changing objective/constraint structure
+   is ``formulate``.
 4. Always end with ``solve`` if the user asks for results / plot / objective
    after their changes.
 
@@ -226,6 +261,7 @@ def get_prompts():
         "question_parameter": {"system": QUESTION_PARAMETER_SYSTEM},
         "configure_extract": {"system": CONFIGURE_EXTRACT_SYSTEM},
         "modify_extract": {"system": MODIFY_EXTRACT_SYSTEM},
+        "formulate_extract": {"system": FORMULATE_EXTRACT_SYSTEM},
         "planner": {"system": PLANNER_SYSTEM, "user": PLANNER_USER},
         "error_handler": {"system": ERROR_HANDLER_SYSTEM, "user": ERROR_HANDLER_USER},
     }

@@ -47,6 +47,7 @@ from agent.ams_engine.formulations_latex import get_latex_formulation, _BY_FAMIL
 from agent.ams_engine.plotting import plot_results
 from agent.ams_engine.routines import all_routine_names, compatible_solvers, routine_family
 from web.backend.case_data import get_case_tables
+from web.backend.parameter_controls import apply_control, apply_controls, parameter_payload, parse_prompt
 from web.backend.report import build_report
 
 
@@ -215,6 +216,7 @@ def _ensure_case(case_alias: Optional[str]):
     if _ctx.system is None or target != _state["alias"]:
         _ctx.load_case(target)
         _state["alias"] = target
+        _reset_agent()
 
 
 def _plot_urls(plots: Dict[str, str]) -> Dict[str, str]:
@@ -257,6 +259,11 @@ def _run_solve(routine: str, case_alias: Optional[str], solver: str) -> Dict[str
         "violations": results.get("violations", []),
         "plots": _plot_urls(plots),
         "info": info,
+        "pibr": results.get("pibr"),
+        "pcurt": results.get("pcurt"),
+        "pg": results.get("pg"),
+        "formulation_edit": results.get("formulation_edit"),
+        "verification": results.get("verification"),
     }
     # Stash the rich result + plots so /api/report can reuse them verbatim.
     _last_solve[(_state["alias"], routine)] = {
@@ -293,6 +300,30 @@ class LLMRequest(BaseModel):
     model: Optional[str] = None
 
 
+class ParameterApplyRequest(BaseModel):
+    operation: str
+    parameters: Dict[str, Any] = {}
+    routine: Optional[str] = None
+    case: Optional[str] = None
+
+
+class ParameterBatchRequest(BaseModel):
+    actions: List[Dict[str, Any]]
+    routine: Optional[str] = None
+    case: Optional[str] = None
+
+
+class ParameterPromptRequest(BaseModel):
+    message: str
+    routine: Optional[str] = None
+    case: Optional[str] = None
+
+
+class ParameterResetRequest(BaseModel):
+    routine: Optional[str] = None
+    case: Optional[str] = None
+
+
 # ----------------------------------------------------------------- chat agent
 def _ensure_agent() -> Optional[str]:
     """Lazily build the LangGraph agent over the shared System.
@@ -317,6 +348,7 @@ def _ensure_agent() -> Optional[str]:
         if _llm_cfg.get("model"):
             os.environ["OPENAI_MODEL" if provider == "openai" else "OLLAMA_MODEL"] = _llm_cfg["model"]
         llm = make_llm(provider)
+        _agent["llm"] = llm
         _llm_cfg["model"] = getattr(llm, "_model_name", _llm_cfg.get("model"))
         prompts = get_prompts()
         # Share the viewer's AMSContext so chat + viewer act on one System.
@@ -337,7 +369,7 @@ def _ensure_agent() -> Optional[str]:
 
 def _reset_agent() -> None:
     """Drop the cached agent so the next turn rebuilds it with the current LLM config."""
-    _agent.update({"graph": None, "state": None, "error": None, "tried": False})
+    _agent.update({"graph": None, "state": None, "llm": None, "error": None, "tried": False})
 
 
 def _ollama_models() -> List[str]:
@@ -387,9 +419,32 @@ def _llm_status() -> Dict[str, Any]:
 def _agent_turn(message: str, routine: Optional[str],
                 case: Optional[str], solver: Optional[str]) -> Dict[str, Any]:
     """Run one conversational turn. Caller holds ``_lock``."""
+    # LLM catalog selection precedes the general question/solve workflow.
+    if case:
+        try:
+            _ensure_case(case.strip())
+        except Exception as exc:
+            return {"ok": False, "reply": str(exc), "results": None}
+    if routine:
+        try:
+            _ctx.set_routine(routine.upper().strip())
+        except Exception as exc:
+            return {"ok": False, "reply": str(exc), "results": None}
     err = _ensure_agent()
     if err:
         return {"ok": False, "reply": err, "results": None}
+    control = parse_prompt(_ctx, message, _agent["llm"])
+    if control.operation != "chat":
+        if control.ok:
+            _last_solve.clear()
+            _reset_agent()
+        return {
+            "ok": control.ok,
+            "reply": control.message,
+            "results": None,
+            "control": control.as_dict(),
+            "session": {"routine": _ctx.routine_name, "case": _state["alias"], "solver": solver},
+        }
 
     from langchain_core.messages import HumanMessage
 
@@ -417,11 +472,14 @@ def _agent_turn(message: str, routine: Optional[str],
         if _state["alias"] != prev_alias:
             # Fresh case → drop stale per-case modifications (mirror case_io).
             update.update({"load_overrides": {}, "gen_off": [], "line_off": [],
-                           "line_rate_overrides": {}, "disabled_constraints": []})
+                           "line_rate_overrides": {}, "disabled_constraints": [],
+                           "formulation_edit": None})
     if update:
         state["inputs"] = inputs.model_copy(update=update)
 
     state["messages"] = state.get("messages", []) + [HumanMessage(content=message)]
+    state["results"] = None
+    state["error_info"] = None
 
     replies: List[str] = []
     try:
@@ -458,6 +516,7 @@ def _agent_turn(message: str, routine: Optional[str],
             "solver": getattr(final_inputs, "solver", None),
         }
 
+    _last_solve.clear()  # Any agent turn may have changed the compiled model.
     return {
         "ok": True,
         "reply": "\n\n".join(replies) if replies else "_(no reply)_",
@@ -523,7 +582,7 @@ def create_app() -> FastAPI:
                     "name": cat["name"],
                     "routines": items,
                 })
-        return {"groups": groups, "default": DEFAULT_ROUTINE}
+        return {"groups": groups, "default": _ctx.routine_name}
 
     @app.get("/api/cases")
     def cases():
@@ -535,7 +594,46 @@ def create_app() -> FastAPI:
 
     @app.get("/api/formulation/{routine}")
     def formulation(routine: str):
-        return get_latex_formulation(routine.upper().strip())
+        if routine.upper().strip() == "DCOPF" and _ctx.formulation_edit:
+            edit = _ctx.formulation_edit
+            spec = edit["parameters"]
+            return {
+                "routine": "DCOPF", "title": "DCOPF with IBR replacement",
+                "subtitle": f"{edit['generator_idx']} replaced at bus {edit['bus_idx']}. "
+                            "Single-period active-power scheduling equivalent.",
+                "sections": [
+                    {"heading": "New decision variables", "items": [
+                        {"latex": "p_{IBR},\\;p_{curt} \\ge 0", "desc": "IBR dispatch and curtailment (pu)"}]},
+                    {"heading": "Edited objective", "items": [
+                        {"latex": rf"\min\;\sum_{{g\ne g_1}} C_g(p_g) + {spec['dispatch_cost']:g}p_{{IBR}} + {spec['curtailment_cost']:g}p_{{curt}}",
+                         "desc": "Costs follow the loaded AMS case units ($/pu for new linear coefficients)."}]},
+                    {"heading": "Added and changed constraints", "items": [
+                        {"latex": rf"p_{{IBR}}+p_{{curt}}={spec['available_power']:g},\quad 0\le p_{{IBR}}\le {spec['available_power']:g}",
+                         "desc": "Available power splits between dispatch and curtailment."},
+                        {"latex": r"B_{bus}\theta+P_{inj}+C_l p_d+C_{sh}g_{sh}-C_g p_g-C_{IBR}p_{IBR}=0",
+                         "desc": "IBR injection enters nodal balance at the replaced generator bus."},
+                        {"latex": r"p_{g_1}=0", "desc": "Original generator offline. Other generation, line and angle limits remain active."}]}]}
+        result = get_latex_formulation(routine.upper().strip())
+        with _lock:
+            if _ctx.system is not None and routine.upper().strip() == _ctx.routine_name:
+                live = parameter_payload(_ctx)
+                items = []
+                rtn = _ctx.active_routine()
+                if hasattr(rtn, "configured_cost"):
+                    coefficient = float(rtn.configured_cost.v[0])
+                    items.append({"latex": rf"f_{{new}} = f_{{base}} + {coefficient:g}\sum_g p_g", "desc": "Additional dispatch cost ($/pu)."})
+                if hasattr(rtn, "configured_cap"):
+                    limit = float(rtn.configured_cap.v[0])
+                    enabled = not rtn.configured_total_generation.is_disabled
+                    items.append({"latex": rf"\sum_g p_g \le {limit:g}", "desc": "Total generation cap: " + ("enabled" if enabled else "disabled")})
+                disabled = [r["idx"] for r in live["options"]["constraints"] if not r["enabled"]]
+                if disabled:
+                    items.append({"latex": "", "desc": "Disabled constraints: " + ", ".join(disabled)})
+                if items:
+                    import copy
+                    result = copy.deepcopy(result)
+                    result.setdefault("sections", []).append({"heading": "Active configuration changes", "items": items})
+        return result
 
     @app.get("/api/solvers/{routine}")
     def solvers(routine: str):
@@ -569,6 +667,95 @@ def create_app() -> FastAPI:
             "info": info,
             "snapshot": snapshot,
         }
+
+    @app.get("/api/parameters")
+    def parameters(
+        routine: str = Query(DEFAULT_ROUTINE),
+        case: Optional[str] = Query(None),
+    ):
+        routine = routine.upper().strip()
+        case_alias = (case or "").strip() or None
+        with _lock:
+            try:
+                _ensure_case(case_alias)
+                _ctx.set_routine(routine)
+                return parameter_payload(_ctx)
+            except Exception as exc:
+                raise HTTPException(status_code=400, detail=f"{type(exc).__name__}: {exc}")
+
+    @app.post("/api/parameters/apply")
+    def parameters_apply(req: ParameterApplyRequest):
+        with _lock:
+            try:
+                if req.case:
+                    _ensure_case(req.case.strip())
+                if req.routine:
+                    _ctx.set_routine(req.routine.upper().strip())
+                result = apply_control(_ctx, req.operation, req.parameters or {})
+                if result.ok:
+                    _last_solve.clear()
+                    _reset_agent()
+                return {"result": result.as_dict(), "parameters": parameter_payload(_ctx)}
+            except Exception as exc:
+                raise HTTPException(status_code=400, detail=f"{type(exc).__name__}: {exc}")
+
+    @app.post("/api/parameters/prompt")
+    def parameters_prompt(req: ParameterPromptRequest):
+        message = (req.message or "").strip()
+        if not message:
+            raise HTTPException(status_code=400, detail="Empty message.")
+        with _lock:
+            try:
+                if req.case:
+                    _ensure_case(req.case.strip())
+                if req.routine:
+                    _ctx.set_routine(req.routine.upper().strip())
+                err = _ensure_agent()
+                if err:
+                    raise ValueError(err)
+                result = parse_prompt(_ctx, message, _agent["llm"])
+                if result.ok:
+                    _last_solve.clear()
+                    _reset_agent()
+                return {"result": result.as_dict(), "parameters": parameter_payload(_ctx)}
+            except Exception as exc:
+                raise HTTPException(status_code=400, detail=f"{type(exc).__name__}: {exc}")
+
+    @app.post("/api/parameters/batch")
+    def parameters_batch(req: ParameterBatchRequest):
+        with _lock:
+            if req.case:
+                _ensure_case(req.case.strip())
+            if req.routine:
+                _ctx.set_routine(req.routine)
+            result = apply_controls(_ctx, req.actions)
+            if result.ok:
+                _last_solve.clear()
+                _reset_agent()
+            return {"result": result.as_dict(), "parameters": parameter_payload(_ctx)}
+
+    @app.post("/api/parameters/reset")
+    def parameters_reset(req: ParameterResetRequest):
+        with _lock:
+            try:
+                target = (req.case or _state["alias"] or DEFAULT_CASE_ALIAS).strip()
+                _ctx.load_case(target)
+                _state["alias"] = target
+                if req.routine:
+                    _ctx.set_routine(req.routine.upper().strip())
+                _last_solve.clear()
+                _reset_agent()
+                return {
+                    "result": {
+                        "ok": True,
+                        "message": f"Reset parameters for {_case_label(_state['alias'])}.",
+                        "operation": "reset",
+                        "parameters": {},
+                    },
+                    "parameters": parameter_payload(_ctx),
+                }
+            except Exception as exc:
+                raise HTTPException(status_code=400, detail=f"{type(exc).__name__}: {exc}")
 
     @app.post("/api/solve")
     def solve(req: SolveRequest):

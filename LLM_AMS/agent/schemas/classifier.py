@@ -13,7 +13,8 @@ class MessageClassifier(BaseModel):
         "case_io",            # Route 3: load / inspect / export a case file
         "configure",          # Route 4: change routine, solver, config_t, enable/disable constraints
         "modify",             # Route 5: change load p0, trip gen/line, change line rate
-        "solve",              # Route 6: run the active routine
+        "formulate",          # Route 6: bounded objective/variable/constraint edits
+        "solve",              # Route 7: run the active routine
     ] = Field(
         ...,
         description=(
@@ -21,7 +22,8 @@ class MessageClassifier(BaseModel):
             "question_parameter (discovery of available cases/routines/solvers), "
             "case_io (load/inspect/export case file), "
             "configure (routine/solver/config/constraint enable-disable), "
-            "modify (load p0, trip gen/line, line rate), "
+            "modify (load p0, trip gen/line, line rate), formulate "
+            "(replace a generator with an IBR and add its formulation), "
             "solve (run the active routine). For a message that mixes MULTIPLE "
             "actions, pick the LAST action here and set is_multi_step=true."
         ),

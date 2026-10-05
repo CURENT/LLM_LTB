@@ -38,7 +38,7 @@ sp.RTED.update()
 sp.RTED.run(solver='SCS')
 ```
 
-The agent uses a **LangGraph state machine** with a classifier → router → six route-specific nodes (Q&A, Discovery, Case I/O, Configure, Modify, Solve), plus a planner for compound queries like *"change load PQ_1 to 3.2 then solve"*.
+The agent uses a **LangGraph state machine** with a classifier → router → seven route-specific nodes (Q&A, Discovery, Case I/O, Configure, Modify, Formulate, Solve), plus a planner for compound queries like *"replace PV_1 with an IBR, then solve"*.
 
 **Technology stack**
 
@@ -49,7 +49,7 @@ The agent uses a **LangGraph state machine** with a classifier → router → si
 
 ---
 
-## Phase 1 Routes (1-6)
+## Routes (1-7)
 
 | Route | Node | Maps to AMS API | ex2 cell |
 |---|---|---|---|
@@ -58,9 +58,10 @@ The agent uses a **LangGraph state machine** with a classifier → router → si
 | **3 – Case I/O** | `case_io` | `ams.load(ams.get_case(...))`, case info | cells 6, 50, 59 |
 | **4 – Configure** | `configure` | active routine, solver, `routine.config.update(t=...)`, `routine.disable([...])`, `routine.enable([...])` | cells 69, 76, 81, 92 |
 | **5 – Modify** | `modify` | `PQ.alter('p0', ...)`, `StaticGen.set('u', ...)`, `Line.alter('u', ...)`, `Line.set('rate_a', ...)` | cells 19, 41, 52, 61 |
-| **6 – Solve** | `solve` | `routine.run(solver=...)` → `pg`, `plf`, `pd`, `obj` + bar-chart plots | cells 13, 23, 34, 45, 54, 66, 72, 78, 89, 96, 103 |
+| **6 – Formulate** | `formulate` | reviewed IBR replacement template → new variables, constraints, bus mapping, and costs | structural extension |
+| **7 – Solve** | `solve` | `routine.run(solver=...)` → `pg`, `pibr`, `pcurt`, `plf`, `pd`, `obj` + plots | cells 13, 23, 34, 45, 54, 66, 72, 78, 89, 96, 103 |
 
-Routes 7-11 (multi-period temporal, ANDES co-sim, custom cvxpy formulations, exporting) are Phase 2 / 3.
+Additional temporal, scenario, ANDES co-simulation, formulation, and export capabilities remain Phase 2 / 3 work.
 
 ---
 
@@ -73,7 +74,7 @@ Routes 7-11 (multi-period temporal, ANDES co-sim, custom cvxpy formulations, exp
      │
      ▼
 ┌────────────┐
-│ CLASSIFIER │  → one of six message_type labels
+│ CLASSIFIER │  → one of seven message_type labels
 └────┬───────┘
      │
      ▼
@@ -86,8 +87,9 @@ Routes 7-11 (multi-period temporal, ANDES co-sim, custom cvxpy formulations, exp
      ├──► CASE_IO ─────────────► END | ADVANCE_STEP | ERROR_HANDLER
      ├──► CONFIGURE ───────────► END | ADVANCE_STEP | ERROR_HANDLER
      ├──► MODIFY ──────────────► END | ADVANCE_STEP | ERROR_HANDLER
+     ├──► FORMULATE ───────────► END | ADVANCE_STEP | ERROR_HANDLER
      ├──► SOLVE ───────────────► END | ADVANCE_STEP | ERROR_HANDLER
-     └──► PLANNER ─────────────► STEP_CONTROLLER ──► (any of the 6) ──► ADVANCE_STEP ──► SUMMARY ──► END
+     └──► PLANNER ─────────────► STEP_CONTROLLER ──► (any of the 7) ──► ADVANCE_STEP ──► SUMMARY ──► END
 
 ┌────────────────┐
 │ ERROR_HANDLER  │ ─────► ADVANCE_STEP | END
@@ -99,7 +101,7 @@ Routes 7-11 (multi-period temporal, ANDES co-sim, custom cvxpy formulations, exp
 - **State** (`agent/state/app_state.py`): TypedDict LangGraph state holding messages, current `Inputs`, last `results`, plan / step counter, error info.
 - **Inputs** (`agent/schemas/inputs.py`): pydantic model — `case_path`, `routine`, `solver`, `config_t`, `disabled_constraints`, `load_overrides`, `gen_off`, `line_off`, `line_rate_overrides`.
 - **AMSContext** (`agent/ams_engine/engine.py`): thin object that owns one `ams.System` and exposes idempotent methods matching ex2's API (`load_case`, `alter_load_p0`, `set_gen_status`, `set_line_status`, `set_config_t`, `disable_constraints`, `solve`, …). Held by the SessionManager; bound into node closures (same pattern as `retriever` in pv-curve-llm).
-- **Workflow** (`agent/workflows/workflow.py`): compiled LangGraph StateGraph wiring all 13 nodes.
+- **Workflow** (`agent/workflows/workflow.py`): compiled LangGraph StateGraph wiring all 14 nodes.
 - **Plotting** (`agent/ams_engine/plotting.py`): bar charts for `pg`, `plf`, `pd` saved under `generated/`.
 
 ---
@@ -326,13 +328,13 @@ Type `quit` (or `q`) to exit.
 
 ## LangGraph Workflow
 
-13 nodes wired in `agent/workflows/workflow.py`:
+14 nodes wired in `agent/workflows/workflow.py`:
 
 | Category | Nodes |
 |---|---|
 | Routing | `classifier`, `router` |
 | Planning | `planner`, `step_controller`, `advance_step`, `summary` |
-| Actions (Routes 1-6) | `question_general`, `question_parameter`, `case_io`, `configure`, `modify`, `solve` |
+| Actions (Routes 1-7) | `question_general`, `question_parameter`, `case_io`, `configure`, `modify`, `formulate`, `solve` |
 | Recovery | `error_handler` |
 
 **Simple-query path**: `START → classifier → router → <one route> → END`.
@@ -412,7 +414,7 @@ LLM_AMS/
 │   ├── workflows/
 │   │   └── workflow.py           # compiled LangGraph
 │   │
-│   ├── nodes/                    # 13 nodes
+│   ├── nodes/                    # 14 nodes
 │   │   ├── classify.py
 │   │   ├── route.py
 │   │   ├── planner.py
@@ -425,7 +427,8 @@ LLM_AMS/
 │   │   ├── case_io.py            # Route 3
 │   │   ├── configure.py          # Route 4
 │   │   ├── modify.py             # Route 5
-│   │   └── solve.py              # Route 6
+│   │   ├── formulate.py          # Route 6
+│   │   └── solve.py              # Route 7
 │   │
 │   ├── state/
 │   │   └── app_state.py          # TypedDict
@@ -459,9 +462,98 @@ LLM_AMS/
 
 ---
 
+## IBR formulation edit: live example
+
+Use the `llm-ams` environment, start Ollama, and select **DCOPF** with **CLARABEL**
+in either `python main.py` or the web app. With the default PJM 5-bus demo loaded:
+
+```text
+Replace PV_1 with an IBR with available power 1 pu, dispatch cost 1 dollar per pu, curtailment penalty 20 dollars per pu.
+Solve
+```
+
+The `FormulationEdit` schema feeds the deterministic `formulate` compiler. It
+sets the original generator offline, adds `pibr` and `pcurt`, connects the IBR
+injection at the same bus, enforces available-power balance and bounds, and
+adds dispatch and curtailment costs. Compilation happens on an isolated copy;
+a failure leaves the live model intact. The compiled CVXPY problem must be DCP.
+
+Current scope: **one replacement in single-period nodal DCOPF**. This is an
+active-power scheduling equivalent, not an inverter dynamics or reactive-power
+model. Reload the case to remove the edit. Other routines and duplicate edits
+are rejected. Supply exact generator IDs and pu quantities; ambiguous IDs or
+missing capacity require clarification. Omitted cost coefficients default to
+zero and are shown in the response.
+
+Validation, without an LLM or an external API:
+
+```bash
+python _validate_formulate.py --json ../artifacts/live-validation.json
+```
+
+The nine live checks cover an actual AMS baseline and edited solves, a separately
+assembled SciPy/HiGHS LP, alternate device mapping, rollback and invalid inputs,
+penalty sensitivity, injected result errors, and HTTP solve/formulation output.
+Expected example: objective approximately **9.674966453**, `pibr` approximately
+**1 pu**, `pcurt` approximately **0 pu**. The separate HiGHS model gives
+**9.674966451**. These tests verify this template and example, not arbitrary
+LLM-generated formulations. The natural-language CLI and web runs additionally
+require Ollama. Captured execution evidence is in `../artifacts/evidence/`.
+
+---
+
+## Configuration-backed web parameters
+
+`config/formulation_controls.json` is the shared capability catalog for the
+left Parameters panel and the top Assistant prompt. The panel is generated from
+its enabled entries and field schemas. The selected Ollama/OpenAI LLM receives
+the same catalog and live device IDs and returns a structured operation plan.
+Both paths use the same validated, atomic executor; failed plans leave the
+live model unchanged. No arbitrary LLM-generated code or expressions execute.
+
+Supported controls: PQ-device active-load scaling, line outage/restoration, generator
+status, line thermal rating, existing constraint enable/disable, DCOPF additional
+linear dispatch cost, DCOPF total-generation cap, and the DCOPF IBR replacement
+template (new variables, objective terms and constraints). Unsupported or
+ambiguous requests return a message without changes. Structural templates are
+bounded; arbitrary new variables and constraints are not supported.
+
+Load changes scale **current p0**, leave q0 unchanged, and require an online,
+positive PQ load device, regardless of its connected bus type (PQ, PV or slack).
+The default PJM demo supports PQ_1, PQ_2 and PQ_3. For example, request
+`把负荷 PQ_1 增加10%`. In IEEE 14-bus (or its UC/ED variant for economic solves), try:
+`把节点4的负荷增加10%` or `切断线路 Line_2` in the top Assistant.
+Use the displayed exact indices for other cases. Outages accumulate: cutting
+one line from an intact case is N-1; further cuts are N-k. Restore lines using
+the Online checkbox, or Reset the whole case. The slider shows a signed percentage;
+its Min/Max inputs set the interaction range (initially -20% to +20%). Decreases
+cannot exceed 100%. Valid range changes take effect immediately; narrowing a
+range clamps the slider value. Ranges survive parameter refreshes in the current
+page. Only edited parameters are submitted by Apply Changes.
+
+In DCOPF with PJM demo, try `Add an extra dispatch cost of 5 dollars per pu`
+or `Add a constraint limiting total generation to 15 pu`. The live formulation
+shows these changes and subsequent solves use them. IBR and the other structural
+templates are mutually exclusive until Reset. Reset reloads the case, clears
+edits/results and refreshes parameters. State is in memory, shared by tabs on
+this single-user development server, and is not saved into the source case.
+
+To extend the catalog, set `enabled`, supported `routines`, descriptions,
+`prompt_examples`, and typed `parameters` (select source, boolean, number or
+range, validation limits, defaults and slider_min/slider_max). Labels and limits require only
+JSON changes; a new operation also needs a reviewed compiler branch in
+`web/backend/parameter_controls.py` and a validation test. JSON never contains
+executable code. Both API and UI respect disabled entries.
+
+Run `python _validate_controls.py` for eight integration tests covering actual
+AMS solves, PQ eligibility, rollback, configuration switches, objective/constraint
+effects, IBR validation and HTTP state synchronization. LLM output is mocked in
+that repeatable suite; a live prompt additionally requires the selected model.
+Run the web server with `python -m uvicorn web.backend.main:app --host 127.0.0.1 --port 8000`.
+
 ## Roadmap (Phase 2 & 3)
 
-Phase 1 ships Routes 1-6 (single-period DCOPF / RTED workflows from ex1-ex4).
+The current build ships Routes 1-7, including a bounded structural IBR replacement template for single-period nodal DCOPF.
 The following routes from the design table are deferred:
 
 | Phase | Route | Function |
@@ -469,7 +561,7 @@ The following routes from the design table are deferred:
 | 2 | **7 – Temporal** | multi-period ED / UC schedule, time-series plots |
 | 2 | **8 – Scenario** | snapshot + compare two solve results (matches pv-curve Route 8) |
 | 3 | **9 – ANDES** | `ss.to_andes(...)` co-simulation (AMS's unique feature) |
-| 3 | **10 – Custom Formulation** | runtime cvxpy extension (ex8) |
+| 3 | **10 – Additional Formulations** | storage, reactive-power, virtual-inertia, and other reviewed templates |
 | 3 | **11 – Export** | dump case to xlsx / JSON / MATPOWER |
 
 ---

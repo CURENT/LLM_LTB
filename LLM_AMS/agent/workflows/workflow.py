@@ -3,7 +3,7 @@
 Nodes:
   classifier → router →
     question_general | question_parameter | case_io | configure | modify | solve | planner
-  planner → step_controller → (one of the six route nodes or summary)
+  planner → step_controller → (one of the seven route nodes or summary)
   route nodes → END | advance_step | error_handler
   error_handler → END | advance_step
   advance_step → step_controller | summary
@@ -18,6 +18,7 @@ from agent.nodes.classify import classify_message
 from agent.nodes.configure import configure_agent
 from agent.nodes.error_handler import error_handler_agent
 from agent.nodes.modify import modify_agent
+from agent.nodes.formulate import formulate_agent
 from agent.nodes.planner import planner_agent
 from agent.nodes.question_general import question_general_agent
 from agent.nodes.question_parameter import question_parameter_agent
@@ -29,7 +30,7 @@ from agent.state.app_state import State
 
 
 _ROUTE_NODES = ("question_general", "question_parameter", "case_io",
-                "configure", "modify", "solve")
+                "configure", "modify", "formulate", "solve")
 
 
 def create_workflow(llm, prompts, ams_ctx):
@@ -48,6 +49,7 @@ def create_workflow(llm, prompts, ams_ctx):
     g.add_node("case_io", lambda s: case_io_agent(s, llm, prompts, ams_ctx))
     g.add_node("configure", lambda s: configure_agent(s, llm, prompts, ams_ctx))
     g.add_node("modify", lambda s: modify_agent(s, llm, prompts, ams_ctx))
+    g.add_node("formulate", lambda s: formulate_agent(s, llm, prompts, ams_ctx))
     g.add_node("solve", lambda s: solve_agent(s, llm, prompts, ams_ctx))
 
     g.add_edge(START, "classifier")

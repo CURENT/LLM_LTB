@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>LLM · LTB · AMS — Scheduling Studio</title>
   <link rel="preconnect" href="https://cdn.jsdelivr.net" />
-  <link rel="stylesheet" href="styles.css?v=3" />
+  <link rel="stylesheet" href="styles.css?v=4" />
 
   <!-- MathJax 3: enable both display (\[ \] / $$) and inline ($ / \( \)) math -->
   <script>
@@ -71,6 +71,17 @@
         <select id="model-select" title="Model for the selected provider"></select>
         <p id="llm-note" class="control-note"></p>
       </div>
+      <section class="parameters-panel" id="parameters-panel">
+        <div class="parameters-head">
+          <h2>Parameters</h2>
+          <p class="control-note">Manual controls and prompt-driven updates share the same configuration file.</p>
+        </div>
+        <div id="parameters-body" class="parameters-body"></div>
+        <div class="parameter-actions-bar">
+          <button id="param-apply" class="btn btn-primary" type="button">Apply Changes</button>
+          <button id="param-reset" class="btn" type="button">Reset</button>
+        </div>
+      </section>
     </aside>
 
     <main class="content">
@@ -129,6 +140,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=3"></script>
+  <script src="app.js?v=4"></script>
 </body>
 </html>

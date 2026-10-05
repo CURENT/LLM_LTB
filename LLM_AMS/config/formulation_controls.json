@@ -1,0 +1,158 @@
+{
+  "version": 2,
+  "constraint_labels": {
+    "pb": "Nodal active-power balance",
+    "sba": "Slack-bus voltage-angle reference",
+    "pglb": "Generator active-power lower limit",
+    "pgub": "Generator active-power upper limit",
+    "plflb": "Transmission-line flow lower limit",
+    "plfub": "Transmission-line flow upper limit",
+    "alflb": "Line voltage-angle difference lower limit",
+    "alfub": "Line voltage-angle difference upper limit",
+    "rbu": "Up-regulation reserve balance",
+    "rbd": "Down-regulation reserve balance",
+    "rru": "Up-regulation reserve availability",
+    "rrd": "Down-regulation reserve availability",
+    "rgu": "Generator ramp-up limit",
+    "rgd": "Generator ramp-down limit",
+    "rgu0": "Initial generator ramp-up limit",
+    "rgd0": "Initial generator ramp-down limit",
+    "prsb": "Spinning-reserve balance",
+    "rsr": "Spinning-reserve requirement",
+    "prnsb": "Non-spinning-reserve balance",
+    "rnsr": "Non-spinning-reserve requirement",
+    "actv": "Generator startup transition",
+    "actv0": "Initial generator startup transition",
+    "actw": "Generator shutdown transition",
+    "actw0": "Initial generator shutdown transition",
+    "don": "Minimum generator online duration",
+    "doff": "Minimum generator offline duration",
+    "pdumax": "Unserved-demand upper limit",
+    "SOClb": "Storage state-of-charge lower limit",
+    "SOCub": "Storage state-of-charge upper limit",
+    "SOCb": "Storage state-of-charge balance",
+    "SOCr": "Storage terminal state-of-charge requirement",
+    "configured_total_generation": "Total active-generation upper limit",
+    "pibrub": "Inverter-based resource available-power limit",
+    "ibravail": "Inverter-based resource dispatch and curtailment balance"
+  },
+  "ramping_constraints": ["rgu", "rgd", "rgu0", "rgd0"],
+  "description": "Reviewed controls that may update the active AMS optimization scenario. The LLM or UI must select from these controls; unsupported requests should be rejected gracefully.",
+  "controls": [
+    {
+      "id": "scale_pq_load",
+      "label": "PQ load change",
+      "category": "physical_parameter",
+      "enabled": true,
+      "description": "Scale CURRENT active power p0 of an online positive PQ load device, regardless of whether its bus is PQ, PV or slack. Reactive q0 is unchanged. A bus id must be resolved through options, never guessed as a load id.",
+      "aliases": ["load", "demand", "pq", "负荷", "节点负荷"],
+      "parameters": {
+        "load_idx": {"type": "select", "source": "pq_loads", "required": true},
+        "percent_delta": {"type": "range", "unit": "%", "min": -100, "slider_min": -20, "slider_max": 20, "step": 1, "default": 0}
+      },
+      "prompt_examples": [
+        "increase load A2 by 10%",
+        "decrease PQ load PQ_3 by 20%",
+        "把负荷 A1 增加 10%"
+      ]
+    },
+    {
+      "id": "set_line_status",
+      "label": "Line outage (N-1)",
+      "category": "topology",
+      "enabled": true,
+      "description": "Switch one transmission line on or off to study a topology contingency.",
+      "aliases": ["line", "branch", "trip", "outage", "n-1", "切线", "线路", "拓扑"],
+      "parameters": {
+        "line_idx": {"type": "select", "source": "lines", "required": true},
+        "online": {"type": "boolean", "default": false}
+      },
+      "prompt_examples": [
+        "trip line 3",
+        "open branch Line_2",
+        "restore line 3"
+      ]
+    },
+    {
+      "id": "set_generator_status",
+      "label": "Generator status",
+      "category": "topology",
+      "enabled": true,
+      "description": "Switch one static generator on or off.",
+      "aliases": ["generator", "gen", "unit", "机组", "发电机"],
+      "parameters": {
+        "gen_idx": {"type": "select", "source": "generators", "required": true},
+        "online": {"type": "boolean", "default": false}
+      },
+      "prompt_examples": [
+        "turn off generator G1",
+        "restore gen 2"
+      ]
+    },
+    {
+      "id": "set_line_rate",
+      "label": "Line rating",
+      "category": "physical_parameter",
+      "enabled": true,
+      "description": "Set the rate_a thermal limit of one line.",
+      "aliases": ["rate", "limit", "thermal", "容量", "限值"],
+      "parameters": {
+        "line_idx": {"type": "select", "source": "lines", "required": true},
+        "rate_a": {"type": "number", "unit": "pu", "min": 0.0001, "default": 1.0}
+      },
+      "prompt_examples": [
+        "set line 4 rating to 2.5",
+        "change branch Line_2 rate_a to 1.2"
+      ]
+    },
+    {
+      "id": "set_constraint_status", "label": "Constraint status", "enabled": true,
+      "category": "constraint",
+      "description": "Enable or disable an existing constraint of the active routine by its exact name.",
+      "parameters": {
+        "constraint": {"type": "select", "source": "constraints", "required": true},
+        "enabled": {"type": "boolean", "default": true}
+      },
+      "prompt_examples": ["Disable constraint plfub", "Enable constraint plfub"]
+    },
+    {
+      "id": "set_ramping_status", "label": "Generator ramping limits", "enabled": true,
+      "category": "constraint",
+      "description": "Enable or disable all ramp-up, ramp-down and initial ramp constraints that actually exist in the selected AMS routine. AMS ED is multi-period and includes ramping; DCOPF has no ramping constraints.",
+      "requires_constraints": ["rgu", "rgd", "rgu0", "rgd0"],
+      "parameters": {"enabled": {"type": "boolean", "label": "Ramping enabled", "default": true}},
+      "prompt_examples": ["Disable ramping constraints in ED", "ED问题不使用爬坡约束"]
+    },
+    {
+      "id": "add_dispatch_cost", "label": "Additional dispatch cost", "enabled": true,
+      "category": "objective", "routines": ["DCOPF"],
+      "description": "Add coefficient * sum(pg) to the DCOPF objective. Repeated calls update this coefficient, not duplicate the term. Set zero to remove its cost effect. Incompatible with the IBR template until reset.",
+      "parameters": {
+        "coefficient": {"type": "number", "unit": "$/pu", "min": 0, "required": true}
+      },
+      "prompt_examples": ["Add an extra dispatch cost of 5 dollars per pu to the objective"]
+    },
+    {
+      "id": "set_total_generation_cap", "label": "Total generation cap", "enabled": true,
+      "category": "constraint", "routines": ["DCOPF"],
+      "description": "Add or update sum(pg) <= limit in DCOPF. This can make a case infeasible. Incompatible with the IBR template until reset.",
+      "parameters": {
+        "limit": {"type": "number", "unit": "pu", "min": 0, "required": true}
+      },
+      "prompt_examples": ["Add a constraint limiting total generation to 15 pu"]
+    },
+    {
+      "id": "replace_generator_with_ibr", "label": "IBR replacement", "enabled": true,
+      "category": "formulation", "routines": ["DCOPF"],
+      "description": "Replace one online conventional generator with IBR dispatch pibr and curtailment pcurt variables. Add dispatch_cost*pibr + curtailment_cost*pcurt to objective; add nonnegative bounds, availability equality and nodal balance injection. One replacement per reset; cannot combine with other structural templates.",
+      "parameters": {
+        "generator_idx": {"type": "select", "source": "generators", "required": true},
+        "available_power": {"type": "number", "unit": "pu", "min": 0.0001, "required": true},
+        "dispatch_cost": {"type": "number", "unit": "$/pu", "min": 0, "default": 0},
+        "curtailment_cost": {"type": "number", "unit": "$/pu", "min": 0, "default": 0}
+      },
+      "prompt_examples": ["Replace PV_1 with an IBR with 1 pu available power and curtailment cost 20"]
+    }
+  ],
+  "unsupported_message": "当前配置暂不支持此操作，或缺少明确的目标/参数；未作任何修改。"
+}

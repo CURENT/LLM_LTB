@@ -1,4 +1,5 @@
 from datetime import datetime
+import re
 
 from agent.schemas.response import NodeResponse
 from agent.state.app_state import State
@@ -23,7 +24,7 @@ _SOLVE_HINTS = (
     "运行", "求解", "计算", "跑一下", "跑一遍", "解一下",
 )
 _CHANGE_HINTS = (
-    "change", "set ", "trip", "switch", "load ", "restore", "disable", "enable",
+    "change", "set ", "trip", "switch", "load ", "restore", "disable", "enable", "replace",
     "换成", "切换", "改成", "改为", "设置", "设为", "修改", "加载", "载入", "导入",
     "禁用", "启用", "关闭", "投入",
 )
@@ -49,13 +50,19 @@ def router(state: State):
         c in user_input for c in _CHANGE_HINTS
     )
     needs_planning = llm_multi_step or is_multi or has_change_and_solve
+    # A replacement includes variables, costs and constraints but remains one
+    # atomic edit. Do not split its capacity/cost numbers into unrelated steps.
+    if message_type == "formulate" and not re.search(
+        r"\b(solve|run|load|switch)\b|求解|运行|加载|切换", user_input
+    ):
+        needs_planning = False
 
     if needs_planning:
         next_node, is_compound = "planner", True
     else:
         next_node = message_type if message_type in {
             "question_general", "question_parameter", "case_io",
-            "configure", "modify", "solve",
+            "configure", "modify", "formulate", "solve",
         } else "question_general"
         is_compound = False
 
