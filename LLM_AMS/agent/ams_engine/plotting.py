@@ -44,11 +44,18 @@ def _bar_plot(arr, labels, ylabel, title, save_path):
 def _line_plot(arr2d, labels, ylabel, title, save_path):
     """Multi-period line chart — one line per device, x = period index."""
     n_dev, n_t = arr2d.shape
-    fig, ax = plt.subplots(figsize=(max(7, 0.4 * n_t + 3), 4.5))
+    # Width grows with the horizon but is capped: 168 slots at 0.4"/slot would be a
+    # 70" x 4.5" strip that renders as a sliver in the web card. 16" x 5" keeps a
+    # week readable; markers only when there is room for them.
+    fig, ax = plt.subplots(figsize=(min(16.0, max(7.0, 0.4 * n_t + 3)), 5.0))
     x = np.arange(n_t)
+    marker = "o" if n_t <= 48 else None
     for i in range(n_dev):
         lbl = str(labels[i]) if labels and i < len(labels) else str(i)
-        ax.plot(x, arr2d[i], marker="o", markersize=3, linewidth=1.4, label=lbl)
+        ax.plot(x, arr2d[i], marker=marker, markersize=3, linewidth=1.4, label=lbl)
+    if n_t > 48:                                       # day boundaries on hourly horizons
+        for d in range(24, n_t, 24):
+            ax.axvline(d, color="grey", lw=0.5, alpha=0.5)
     ax.set_xlabel("Time period")
     ax.set_ylabel(ylabel)
     ax.set_title(f"{title}  ({n_t} periods)")

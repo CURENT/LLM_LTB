@@ -119,7 +119,9 @@ def solve_agent(state: State, llm, prompts, ams_ctx):
     # --- run the routine ---
     try:
         ams_ctx.set_routine(routine_name)
-        results = ams_ctx.solve(solver=inputs.solver)
+        # ignore_dpp for multi-period routines: cvxpy 1.9.2 DPP fails above 160 slots
+        results = ams_ctx.solve(solver=inputs.solver,
+                                ignore_dpp=hasattr(ams_ctx.active_routine(), "timeslot"))
     except Exception as exc:
         return {"error_info": {
             "error_type": "solve_error",
