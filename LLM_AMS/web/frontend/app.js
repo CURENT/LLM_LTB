@@ -377,13 +377,17 @@ function renderParameters(payload) {
   const body = $("parameters-body");
   if (!body) return;
   const opts = payload.options || {};
-  const controls = (payload.config?.controls || []).filter(c => c.enabled !== false &&
-    (!c.requires_constraints || (opts.constraints || []).some(r => c.requires_constraints.includes(r.idx))));
+  const controls = payload.available_controls || (payload.config?.controls || []).filter(c => c.enabled !== false &&
+    (!c.requires_constraints || (opts.constraints || []).some(r => c.requires_constraints.includes(r.idx))) &&
+    (!c.routines || c.routines.includes(payload.routine || state.routine)));
+  if (!controls.length) {
+    body.innerHTML = `<p class="empty-note">No parameter controls are available for ${esc(payload.routine || state.routine)} on this case.</p>`;
+    return;
+  }
   body.innerHTML = controls.map(c => {
     const saved = payload.values?.[c.id] || {};
-    const wrongRoutine = c.routines && !c.routines.includes(state.routine);
     const emptySource = Object.values(c.parameters).some(s => s.source && !(opts[s.source] || []).length);
-    const unavailable = wrongRoutine || emptySource;
+    const unavailable = c.available === false || emptySource;
     const fields = Object.entries(c.parameters).map(([name, spec]) => {
       const id = `param-${c.id}-${name}`;
       const value = saved[name] ?? spec.default ?? "";
@@ -417,7 +421,7 @@ function renderParameters(payload) {
     }).join("");
     return `<fieldset data-operation="${c.id}" ${unavailable ? "disabled" : ""}>
       <legend>${esc(c.label)} ${infoIcon(c.description)}</legend>
-      ${unavailable ? `<p class="control-note">${wrongRoutine ? esc(c.routines.join(", ")) : "No eligible devices in this case."}</p>` : ""}${fields}</fieldset>`;
+      ${unavailable ? `<p class="control-note">${esc(c.unavailable_reason || "No eligible devices in this case.")}</p>` : ""}${fields}</fieldset>`;
   }).join("");
   controls.forEach(c => {
     const fieldset = body.querySelector(`[data-operation="${c.id}"]`);
@@ -477,7 +481,7 @@ async function applyParameterForm() {
   state.busy = true;
   setStatus("applying parameter changes...");
   const actions = [];
-  for (const c of state.parameters.config.controls) {
+  for (const c of state.parameters.available_controls || state.parameters.config.controls) {
     const form = document.querySelector(`[data-operation="${c.id}"]`);
     if (!form || form.disabled || form.dataset.dirty !== "true") continue;
     const parameters = {};

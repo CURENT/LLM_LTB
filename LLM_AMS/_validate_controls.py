@@ -103,6 +103,23 @@ class ControlsTest(unittest.TestCase):
         self.assertTrue(result.ok, result.message)
         self.assertTrue(ctx.solve()["converged"])
 
+    def test_routine_specific_control_catalog(self):
+        ctx = context()
+        dcopf = {c["id"] for c in parameter_payload(ctx)["available_controls"]}
+        self.assertIn("add_dispatch_cost", dcopf)
+        self.assertNotIn("set_config_t", dcopf)
+
+        ctx.set_routine("ED")
+        ed = {c["id"] for c in parameter_payload(ctx)["available_controls"]}
+        self.assertIn("set_config_t", ed)
+        self.assertNotIn("add_dispatch_cost", ed)
+
+        ctx.set_routine("DCPF")
+        dcpf = {c["id"] for c in parameter_payload(ctx)["available_controls"]}
+        self.assertNotIn("set_config_t", dcpf)
+        self.assertNotIn("add_dispatch_cost", dcpf)
+        self.assertFalse(apply_control(ctx, "set_config_t", {"t": 1}).ok)
+
     def test_ibr_template(self):
         ctx = context()
         result = apply_control(ctx, "replace_generator_with_ibr", {

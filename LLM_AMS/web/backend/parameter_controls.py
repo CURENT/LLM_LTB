@@ -12,6 +12,8 @@ from typing import Any, Literal
 import numpy as np
 from pydantic import BaseModel, Field
 
+from agent.ams_engine.routines import routine_family
+
 CONFIG_PATH = Path(__file__).resolve().parents[2] / "config/formulation_controls.json"
 
 
@@ -41,6 +43,41 @@ def load_control_config():
     return json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
 
 
+def _control_available(ctx, control, payload=None):
+    """Project the global JSON catalog onto the active routine/case."""
+    if control.get("enabled", True) is False:
+        return False, "disabled"
+    routines = control.get("routines")
+    if routines and ctx.routine_name not in routines:
+        return False, f"select one of: {', '.join(routines)}"
+    families = control.get("routine_families")
+    if families and routine_family(ctx.routine_name) not in families:
+        return False, f"select a {', '.join(families)} routine"
+    required = control.get("requires_constraints")
+    constrs = getattr(ctx.active_routine(), "constrs", {})
+    if required and not any(k in constrs for k in required):
+        return False, "required constraints are not present"
+    if payload is not None:
+        for spec in control.get("parameters", {}).values():
+            source = spec.get("source")
+            if source and not payload.get("options", {}).get(source):
+                return False, f"no eligible {source}"
+    return True, ""
+
+
+def _routine_controls(ctx, cfg, payload=None):
+    available = []
+    unavailable = []
+    for control in cfg.get("controls", []):
+        ok, reason = _control_available(ctx, control, payload)
+        row = copy.deepcopy(control)
+        row["available"] = ok
+        if reason:
+            row["unavailable_reason"] = reason
+        (available if ok else unavailable).append(row)
+    return available, unavailable
+
+
 def _records(model, columns):
     return [{name: (value.item() if hasattr(value, "item") else value)
              for name in columns
@@ -58,28 +95,35 @@ def _state(ctx):
 def parameter_payload(ctx):
     cfg = load_control_config()
     if ctx.system is None:
-        return {"config": cfg, "options": {}, "values": {}}
+        return {"config": cfg, "available_controls": [], "unavailable_controls": [],
+                "options": {}, "values": {}}
     ss = ctx.system
     # PQ is the load-device model; its bus may be PQ, PV or slack.
     loads = [r for r in _records(ss.PQ, ["bus", "p0", "q0", "u"])
              if r["u"] and r["p0"] > 0]
     rtn = ctx.active_routine()
-    statuses = ctx.constraint_status()
+    constrs = getattr(rtn, "constrs", {})
+    statuses = {name: (not c.is_disabled) for name, c in constrs.items()}
     ramps = [name for name in cfg.get("ramping_constraints", []) if name in statuses]
     values = dict(_state(ctx))
     if ramps:
         values["set_ramping_status"] = {"enabled": all(statuses[name] for name in ramps)}
-    return {"config": cfg, "routine": ctx.routine_name,
-            "options": {
+    payload = {"config": cfg, "routine": ctx.routine_name,
+               "routine_family": routine_family(ctx.routine_name),
+               "options": {
                 "pq_loads": loads,
                 "lines": _records(ss.Line, ["bus1", "bus2", "u", "rate_a"]),
                 "generators": _records(ss.StaticGen, ["bus", "u", "p0", "pmax"]),
-                "constraints": [{"idx": k, "label": cfg.get("constraint_labels", {}).get(k, rtn.constrs[k].info or k),
+                "constraints": [{"idx": k, "label": cfg.get("constraint_labels", {}).get(k, constrs[k].info or k),
                                  "enabled": v} for k, v in statuses.items()],
             }, "values": values, "formulation_edit": ctx.formulation_edit,
-            "objective_expression": getattr(getattr(rtn, "obj", None), "e_str", None),
-            "constraint_expressions": {k: c.e_str for k, c in rtn.constrs.items()
-                                       if k.startswith("configured_")}}
+               "objective_expression": getattr(getattr(rtn, "obj", None), "e_str", None),
+               "constraint_expressions": {k: c.e_str for k, c in rtn.constrs.items()
+                                          if k.startswith("configured_")}}
+    available, unavailable = _routine_controls(ctx, cfg, payload)
+    payload["available_controls"] = available
+    payload["unavailable_controls"] = unavailable
+    return payload
 
 
 def _validate(ctx, operation, params):
@@ -88,10 +132,9 @@ def _validate(ctx, operation, params):
     control = next((c for c in cfg["controls"] if c["id"] == operation and c.get("enabled", True)), None)
     if not control:
         raise ValueError(cfg["unsupported_message"])
-    if control.get("routines") and ctx.routine_name not in control["routines"]:
-        raise ValueError(f"{operation} supports {', '.join(control['routines'])}; select that routine first.")
-    if control.get("requires_constraints") and not any(k in ctx.active_routine().constrs for k in control["requires_constraints"]):
-        raise ValueError(f"{ctx.routine_name} has no constraints for {control['label']}.")
+    available, reason = _control_available(ctx, control, payload)
+    if not available:
+        raise ValueError(f"{control['label']} is unavailable for {ctx.routine_name}: {reason}.")
     fields = control["parameters"]
     if set(params) - set(fields):
         raise ValueError("Unknown parameters: " + ", ".join(set(params) - set(fields)))
@@ -185,6 +228,9 @@ def _apply(ctx, operation, p):
         fn = ctx.enable_constraints if p["enabled"] else ctx.disable_constraints
         fn(names)
         message = f"{ctx.routine_name} ramping constraints {', '.join(names)}: {'enabled' if p['enabled'] else 'disabled'}."
+    elif operation == "set_config_t":
+        ctx.set_config_t(p["t"])
+        message = f"{ctx.routine_name} interval t={p['t']:g} h."
     elif operation == "set_constraint_status":
         fn = ctx.enable_constraints if p["enabled"] else ctx.disable_constraints
         fn([p["constraint"]])
@@ -237,7 +283,7 @@ def parse_prompt(ctx, message, llm):
     """The LLM retrieves catalog entries; only the deterministic executor mutates AMS."""
     payload = parameter_payload(ctx)
     instruction = (
-        "Classify the user's request and select operations ONLY from this JSON catalog. "
+        "Classify the user's request and select operations ONLY from available_controls in this JSON catalog. "
         "Use update for explicit scenario/objective/constraint changes, unsupported for unavailable "
         "edits or missing/ambiguous targets or values, and chat for questions or solve requests "
         "without edits. Never treat a question, quoted example, or negation as authorization to edit. "

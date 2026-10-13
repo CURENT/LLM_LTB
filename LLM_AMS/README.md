@@ -505,16 +505,19 @@ require Ollama. Captured execution evidence is in `../artifacts/evidence/`.
 ## Configuration-backed web parameters
 
 `config/formulation_controls.json` is the shared capability catalog for the
-left Parameters panel and the top Assistant prompt. The panel is generated from
-its enabled entries and field schemas. The selected Ollama/OpenAI LLM receives
-the same catalog and live device IDs and returns a structured operation plan.
+left Parameters panel and the top Assistant prompt. The backend projects the
+global catalog into `available_controls` for the currently selected routine and
+case, so DCPF/PFlow, ACOPF, ED, UC and DCOPF can expose different internal
+parameters from the same file. The selected Ollama/OpenAI LLM receives the same
+routine-aware catalog and live device IDs and returns a structured operation plan.
 Both paths use the same validated, atomic executor; failed plans leave the
 live model unchanged. No arbitrary LLM-generated code or expressions execute.
 
 Supported controls: PQ-device active-load scaling, line outage/restoration, generator
-status, line thermal rating, existing constraint enable/disable, DCOPF additional
-linear dispatch cost, DCOPF total-generation cap, and the DCOPF IBR replacement
-template (new variables, objective terms and constraints). Unsupported or
+status, line thermal rating, routine interval `config.t` for time-based routines,
+existing constraint enable/disable, DCOPF additional linear dispatch cost, DCOPF
+total-generation cap, and the DCOPF IBR replacement template (new variables,
+objective terms and constraints). Unsupported or
 ambiguous requests return a message without changes. Structural templates are
 bounded; arbitrary new variables and constraints are not supported.
 
@@ -538,17 +541,18 @@ templates are mutually exclusive until Reset. Reset reloads the case, clears
 edits/results and refreshes parameters. State is in memory, shared by tabs on
 this single-user development server, and is not saved into the source case.
 
-To extend the catalog, set `enabled`, supported `routines`, descriptions,
-`prompt_examples`, and typed `parameters` (select source, boolean, number or
-range, validation limits, defaults and slider_min/slider_max). Labels and limits require only
-JSON changes; a new operation also needs a reviewed compiler branch in
+To extend the catalog, set `enabled`, supported exact `routines` or
+`routine_families`, descriptions, `prompt_examples`, and typed `parameters`
+(select source, boolean, number or range, validation limits, defaults and
+slider_min/slider_max). Labels, routine applicability and limits require only
+JSON changes; a new operation also needs a reviewed executor branch in
 `web/backend/parameter_controls.py` and a validation test. JSON never contains
 executable code. Both API and UI respect disabled entries.
 
-Run `python _validate_controls.py` for eight integration tests covering actual
+Run `python _validate_controls.py` for integration tests covering actual
 AMS solves, PQ eligibility, rollback, configuration switches, objective/constraint
-effects, IBR validation and HTTP state synchronization. LLM output is mocked in
-that repeatable suite; a live prompt additionally requires the selected model.
+effects, routine-specific catalogs, IBR validation and HTTP state synchronization.
+LLM output is mocked in that repeatable suite; a live prompt additionally requires the selected model.
 Run the web server with `python -m uvicorn web.backend.main:app --host 127.0.0.1 --port 8000`.
 
 ## Roadmap (Phase 2 & 3)

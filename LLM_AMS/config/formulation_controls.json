@@ -106,6 +106,22 @@
       ]
     },
     {
+      "id": "set_config_t",
+      "label": "Routine interval",
+      "category": "routine_parameter",
+      "enabled": true,
+      "routine_families": ["rted", "rted2", "ed", "ed2", "uc", "uc2"],
+      "description": "Set routine.config.t in hours for routines whose optimization horizon or dispatch interval is time-based. This control is intentionally hidden for power-flow-only routines such as DCPF/PFlow.",
+      "aliases": ["interval", "time step", "config_t", "时间间隔", "调度间隔"],
+      "parameters": {
+        "t": {"type": "number", "label": "Interval", "unit": "h", "min": 0.0001, "max": 24, "default": 1}
+      },
+      "prompt_examples": [
+        "Set ED interval to 1 hour",
+        "把 UC 的调度间隔设为 0.5 小时"
+      ]
+    },
+    {
       "id": "set_constraint_status", "label": "Constraint status", "enabled": true,
       "category": "constraint",
       "description": "Enable or disable an existing constraint of the active routine by its exact name.",
