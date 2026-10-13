@@ -350,6 +350,43 @@ START → classifier → router → planner →
 
 **Recovery**: any route node may attach `error_info`; the conditional edge routes to `error_handler`, which uses the LLM to explain the failure and resets retry state.
 
+### Route extensions
+
+A route can also live outside this repository. It describes itself with
+`agent.extensions.RouteExtension` and is wired exactly like the built-in route
+nodes — classifier, router, planner, error handling and summary all see it:
+
+```python
+from agent.extensions import RouteExtension
+
+MY_ROUTE = RouteExtension(
+    name="my_route",                          # lower snake case, not a built-in name
+    node=my_route_agent,                      # (state, llm, prompts, ams_ctx) -> dict
+    summary="one line for the classifier schema",
+    classifier_hint='What it does. Examples: "...", "..."',
+    planner_hint="optional rule for the planner",
+    prompts={"my_route_extract": {"system": "..."}},   # optional, merged into prompts
+    is_change=lambda text: ...,               # optional: counts as change-then-solve
+)
+```
+
+Register it either explicitly, `create_workflow(llm, prompts, ams_ctx, extensions=[MY_ROUTE])`,
+or for the CLI and web server through the environment (the package must be importable):
+
+```bash
+export LTB_EXTENSIONS=my_package.plugin:MY_ROUTE     # comma-separate several entries
+```
+
+With no extensions the agent behaves exactly as before; `extensions=()` ignores the
+environment. Tests: `python -m pytest test_files/test_route_extensions.py -q`.
+
+Hint text is inserted into the built-in prompts (classifier bullets before "Pick the
+BEST…", planner actions into the action list, planner rules as the next numbered rule).
+Small local models are sensitive to it: with `llama3.1:8b`, one wording of a planner
+rule turned "Change load PQ_1 to 3.2 then solve" from `modify → solve` into
+`formulate → solve`. After writing an extension, re-run a few built-in compound requests
+with and without it and check that the plans match.
+
 ---
 
 ## Configuration

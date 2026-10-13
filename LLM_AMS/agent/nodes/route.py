@@ -30,7 +30,8 @@ _CHANGE_HINTS = (
 )
 
 
-def router(state: State):
+def router(state: State, extensions=()):
+    # ``extensions``: registered RouteExtension objects (agent.extensions)
     display_executing_node("router")
 
     message_type = state.get("message_type", "question_general")
@@ -46,8 +47,11 @@ def router(state: State):
         k in user_input for k in _COMPARE_HINTS
     )
     # "change/switch/load X ... and solve" → the change must precede the run.
-    has_change_and_solve = any(s in user_input for s in _SOLVE_HINTS) and any(
-        c in user_input for c in _CHANGE_HINTS
+    has_change = any(c in user_input for c in _CHANGE_HINTS) or any(
+        e.is_change is not None and e.is_change(user_input) for e in extensions
+    )
+    has_change_and_solve = has_change and any(
+        s in user_input for s in _SOLVE_HINTS
     )
     needs_planning = llm_multi_step or is_multi or has_change_and_solve
     # A replacement includes variables, costs and constraints but remains one
@@ -63,6 +67,7 @@ def router(state: State):
         next_node = message_type if message_type in {
             "question_general", "question_parameter", "case_io",
             "configure", "modify", "formulate", "solve",
+            *(e.name for e in extensions),
         } else "question_general"
         is_compound = False
 
