@@ -15,11 +15,18 @@ named in ``$LTB_EXTENSIONS`` as comma-separated ``module:attribute`` entries,
 where the attribute is a ``RouteExtension`` or a list/tuple of them::
 
     LTB_EXTENSIONS=casebuilder.ltb_plugin:CASE_BUILD
+
+Failure isolation: an extension must not take the built-in routes down with it.
+Entries from ``$LTB_EXTENSIONS`` that fail to import or validate are skipped with
+a warning (:func:`load_warnings`); an exception in an extension node becomes
+``error_info`` for the error handler; an exception in ``is_change`` counts as
+False. Extensions passed explicitly are still validated strictly.
 """
 
 from __future__ import annotations
 
 import importlib
+import logging
 import os
 import re
 from dataclasses import dataclass, field
@@ -32,6 +39,8 @@ from agent.schemas.classifier import MessageClassifier
 from agent.schemas.planner import MultiStepPlan, StepType
 
 ENV_VAR = "LTB_EXTENSIONS"
+_log = logging.getLogger(__name__)
+_LOAD_WARNINGS: List[str] = []
 
 # Built-in routes, read from the classifier schema so a route added there is
 # picked up here too. An extension may not reuse these or the graph's other nodes.
@@ -105,6 +114,78 @@ def load_extensions(spec: Optional[str] = None) -> Tuple[RouteExtension, ...]:
             raise ValueError(f"{ENV_VAR} entry {entry!r} could not be loaded: {exc}") from exc
         found.extend(obj if isinstance(obj, (list, tuple)) else [obj])
     return validate_extensions(found)
+
+
+def load_extensions_lenient(spec: Optional[str] = None) -> Tuple[RouteExtension, ...]:
+    """Like :func:`load_extensions`, but skip (and log) entries that fail.
+
+    Used for ``$LTB_EXTENSIONS``: a moved, uninstalled or broken plugin must not
+    disable the whole agent. The skipped entries are available from
+    :func:`load_warnings` until the next call.
+    """
+    spec = os.environ.get(ENV_VAR, "") if spec is None else spec
+    found: List[RouteExtension] = []
+    warnings: List[str] = []
+    for entry in (e.strip() for e in spec.split(",")):
+        if not entry:
+            continue
+        try:
+            for ext in load_extensions(entry):
+                validate_extensions(found + [ext])        # name clashes with earlier entries
+                found.append(ext)
+        except Exception as exc:                          # ImportError, SyntaxError, ValueError, ...
+            reason = str(exc)
+            prefix = f"{ENV_VAR} entry {entry!r} "
+            reason = reason[len(prefix):] if reason.startswith(prefix) else reason
+            msg = f"{prefix}skipped: {reason}"
+            _log.warning(msg)
+            warnings.append(msg)
+    _LOAD_WARNINGS[:] = warnings
+    return tuple(found)
+
+
+def load_warnings() -> List[str]:
+    """Entries the last :func:`load_extensions_lenient` call skipped, as messages."""
+    return list(_LOAD_WARNINGS)
+
+
+# --------------------------------------------------------------------------- #
+# failure isolation
+# --------------------------------------------------------------------------- #
+def says_change(ext: RouteExtension, text: str) -> bool:
+    """``ext.is_change(text)``; False if it is missing or raises."""
+    if ext.is_change is None:
+        return False
+    try:
+        return bool(ext.is_change(text))
+    except Exception as exc:                              # never break routing of other turns
+        _log.warning("extension %r: is_change raised %s: %s", ext.name, type(exc).__name__, exc)
+        return False
+
+
+def run_node(ext: RouteExtension, state, llm, prompts, ams_ctx) -> dict:
+    """Run an extension node; an exception or a non-dict result becomes ``error_info``
+    (like built-in nodes' errors). LangGraph itself raises on a non-dict update
+    (``InvalidUpdateError``), and ``None`` would end the turn with no reply at all."""
+    try:
+        result = ext.node(state, llm, prompts, ams_ctx)
+    except Exception as exc:                              # not BaseException: Ctrl+C still stops
+        _log.warning("extension %r: node raised %s: %s", ext.name, type(exc).__name__, exc)
+        return _node_error(ext, state, f"{type(exc).__name__}: {exc}")
+    if not isinstance(result, dict):
+        _log.warning("extension %r: node returned %s, expected dict", ext.name, type(result).__name__)
+        return _node_error(ext, state, f"the route returned {type(result).__name__}, expected a dict")
+    return result
+
+
+def _node_error(ext: RouteExtension, state, message: str) -> dict:
+    messages = state.get("messages") or []
+    inputs = state.get("inputs")
+    return {"error_info": {"error_type": f"{ext.name}_error",
+                           "error_message": message,
+                           "user_input": getattr(messages[-1], "content", "") if messages else "",
+                           "current_inputs": inputs.model_dump() if hasattr(inputs, "model_dump") else None},
+            "failed_node": ext.name}
 
 
 # --------------------------------------------------------------------------- #

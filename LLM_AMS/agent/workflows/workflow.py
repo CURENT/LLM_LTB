@@ -16,7 +16,7 @@ when that argument is omitted, from ``$LTB_EXTENSIONS``.
 
 from langgraph.graph import END, START, StateGraph
 
-from agent.extensions import build_schemas, extend_prompts, load_extensions, validate_extensions
+from agent.extensions import build_schemas, extend_prompts, load_extensions_lenient, run_node, validate_extensions
 from agent.nodes.advance_step import advance_step
 from agent.nodes.case_io import case_io_agent
 from agent.nodes.classify import classify_message
@@ -39,8 +39,9 @@ _ROUTE_NODES = ("question_general", "question_parameter", "case_io",
 
 
 def create_workflow(llm, prompts, ams_ctx, extensions=None):
-    # extensions=None reads $LTB_EXTENSIONS; pass () to disable extensions.
-    extensions = load_extensions() if extensions is None else validate_extensions(extensions)
+    # extensions=None reads $LTB_EXTENSIONS (failing entries skipped, see
+    # agent.extensions.load_warnings); pass () to disable extensions.
+    extensions = load_extensions_lenient() if extensions is None else validate_extensions(extensions)
     prompts = extend_prompts(prompts, extensions)
     classifier_schema, plan_schema = build_schemas(extensions)
     routes = _ROUTE_NODES + tuple(e.name for e in extensions)
@@ -63,7 +64,7 @@ def create_workflow(llm, prompts, ams_ctx, extensions=None):
     g.add_node("formulate", lambda s: formulate_agent(s, llm, prompts, ams_ctx))
     g.add_node("solve", lambda s: solve_agent(s, llm, prompts, ams_ctx))
     for ext in extensions:
-        g.add_node(ext.name, lambda s, ext=ext: ext.node(s, llm, prompts, ams_ctx))
+        g.add_node(ext.name, lambda s, ext=ext: run_node(ext, s, llm, prompts, ams_ctx))
 
     g.add_edge(START, "classifier")
     g.add_edge("classifier", "router")

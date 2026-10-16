@@ -16,6 +16,7 @@ Built as a sibling to [`pv-curve-llm`](https://github.com/CURENT/pv-curve-llm); 
 - [Web Platform (Local)](#web-platform-local)
 - [Usage Examples](#usage-examples)
 - [LangGraph Workflow](#langgraph-workflow)
+  - [Route extensions (plugins)](#route-extensions)
 - [Configuration](#configuration)
 - [Project Structure](#project-structure)
 - [Roadmap (Phase 2 & 3)](#roadmap-phase-2--3)
@@ -352,9 +353,67 @@ START → classifier → router → planner →
 
 ### Route extensions
 
-A route can also live outside this repository. It describes itself with
-`agent.extensions.RouteExtension` and is wired exactly like the built-in route
-nodes — classifier, router, planner, error handling and summary all see it:
+A route can also live **outside this repository** as a plugin. It joins the agent like a
+built-in route — the classifier can pick it, the planner can use it as a step, errors go to
+`error_handler` — without editing the built-in routes, prompts or schemas
+(`agent/extensions.py`). With no plugin configured the agent behaves exactly as before.
+
+Known plugin: `ltb-casebuilder` (separate repository; see its README) — route `case_build`,
+builds a month / year case from real regional hourly load (*"Build the IEEE39 case for July 2020 and
+run ED"*).
+
+#### Using a plugin
+
+One-time setup, in this project's environment (`conda activate llm-ams`):
+
+```bash
+# 1. make the plugin importable (editable: edits to its code apply immediately)
+python -m pip install -e /path/to/ltb-casebuilder --no-deps
+
+# 2. enable it in LLM_AMS/.env (read by both the CLI and the web server);
+#    several plugins: comma-separate the entries on that one line
+echo 'LTB_EXTENSIONS=casebuilder.ltb_plugin:CASE_BUILD' >> .env
+```
+
+Then start the CLI (`python main.py`) or the web server as usual — no `export` needed.
+
+| To … | Do |
+|---|---|
+| check it loaded | the plugin's route answers (e.g. *"Build the IEEE39 case for July 2020"*); a skipped plugin is logged in the terminal and shown once in the web chat as **⚠ Route extension not loaded — …** |
+| turn it off for one run | `export LTB_EXTENSIONS=` before starting (a shell value overrides `.env`) |
+| turn it off for good | delete the line from `.env`; `pip uninstall ltb-casebuilder` |
+| use it without installing | `export PYTHONPATH=/path/to/ltb-casebuilder:.` and `export LTB_EXTENSIONS=...` before starting |
+
+Web notes:
+
+- Cases a plugin builds and loads get a **sidebar entry automatically** (named after the
+  file, e.g. `ieee39_uced_NE_2020_07 · 744 h`), so the sidebar, **Run solve** and the report
+  name the right case.
+- These entries live in memory. After a server restart, a page that still names one finds
+  the file again under `data/` / the case roots, or gets a clear "rebuild it" error — never a
+  silently different case. Reloading the page resets the sidebar.
+- `/api/chat` runs a parameter-control pre-check **before** the agent; with a small local
+  model it may reject a plugin request before it reaches the plugin (reply: *"当前配置暂不支持此操作…"*).
+  The CLI (`python main.py`) has no pre-check.
+
+#### Troubleshooting
+
+| Symptom | Cause / fix |
+|---|---|
+| **⚠ Route extension not loaded — LTB_EXTENSIONS entry '…' skipped: could not be loaded: No module named '…'** | plugin not installed / moved — redo step 1, or fix the module name |
+| **… skipped: must look like 'module:attribute'** | typo in `.env` — the value is `module:ATTRIBUTE` |
+| **… skipped: not a RouteExtension** / **registered twice** / **is a built-in node name** | the attribute is wrong, listed twice, or the plugin's route name clashes |
+| the plugin's reply is an error explanation | its node raised or returned no result; the explanation comes from `error_handler`, the cause is in the terminal log (`extension 'name': node raised …`) |
+| **case '…' is not available on this server** | a case built before a server restart whose file is gone — ask for it again |
+
+A broken plugin never takes the built-in routes down: a failing `LTB_EXTENSIONS` entry is
+skipped, an exception in its node goes to `error_handler`, an exception in its `is_change`
+counts as "no". Extensions passed explicitly in code are validated strictly instead.
+
+#### Writing a plugin
+
+A plugin exposes one `RouteExtension` (see `ltb-casebuilder/casebuilder/ltb_plugin.py` for a
+complete example):
 
 ```python
 from agent.extensions import RouteExtension
@@ -370,22 +429,21 @@ MY_ROUTE = RouteExtension(
 )
 ```
 
-Register it either explicitly, `create_workflow(llm, prompts, ams_ctx, extensions=[MY_ROUTE])`,
-or for the CLI and web server through the environment (the package must be importable):
+- The node has the same contract as the built-in route nodes: return a dict with
+  `messages` / `node_response` (and `inputs` if it changes the session), or `error_info` +
+  `failed_node` for an expected failure. Talk to AMS only through `ams_ctx` (`AMSContext`).
+- Register explicitly with `create_workflow(llm, prompts, ams_ctx, extensions=[MY_ROUTE])`
+  (tests), or through `LTB_EXTENSIONS` as above. `extensions=()` ignores the environment.
+- Tests for the mechanism: `python -m pytest test_files/test_route_extensions.py -q`.
 
-```bash
-export LTB_EXTENSIONS=my_package.plugin:MY_ROUTE     # comma-separate several entries
-```
-
-With no extensions the agent behaves exactly as before; `extensions=()` ignores the
-environment. Tests: `python -m pytest test_files/test_route_extensions.py -q`.
+#### Prompt sensitivity
 
 Hint text is inserted into the built-in prompts (classifier bullets before "Pick the
 BEST…", planner actions into the action list, planner rules as the next numbered rule).
 Small local models are sensitive to it: with `llama3.1:8b`, one wording of a planner
 rule turned "Change load PQ_1 to 3.2 then solve" from `modify → solve` into
-`formulate → solve`. After writing an extension, re-run a few built-in compound requests
-with and without it and check that the plans match.
+`formulate → solve`. After writing or changing a plugin's hints, re-run a few built-in
+compound requests with and without it and check that the plans match.
 
 ---
 
@@ -404,6 +462,9 @@ OPENAI_MODEL=gpt-4o-mini
 
 # Where to drop generated plots
 AMS_OUTPUT_DIR=generated
+
+# Optional — route-extension plugins (see "Route extensions")
+LTB_EXTENSIONS=casebuilder.ltb_plugin:CASE_BUILD
 ```
 
 ### Adding commercial solvers

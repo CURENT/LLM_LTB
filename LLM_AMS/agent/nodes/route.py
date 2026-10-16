@@ -1,6 +1,7 @@
 from datetime import datetime
 import re
 
+from agent.extensions import says_change
 from agent.schemas.response import NodeResponse
 from agent.state.app_state import State
 from agent.utils.display import display_executing_node
@@ -48,7 +49,7 @@ def router(state: State, extensions=()):
     )
     # "change/switch/load X ... and solve" → the change must precede the run.
     has_change = any(c in user_input for c in _CHANGE_HINTS) or any(
-        e.is_change is not None and e.is_change(user_input) for e in extensions
+        says_change(e, user_input) for e in extensions
     )
     has_change_and_solve = has_change and any(
         s in user_input for s in _SOLVE_HINTS
