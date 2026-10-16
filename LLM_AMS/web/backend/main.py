@@ -32,6 +32,7 @@ import matplotlib
 matplotlib.use("Agg")
 
 import os
+import re
 import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -152,6 +153,18 @@ def _resolve_case_ref(ref: str) -> str:
         return raw
     looks_like_path = os.path.isabs(raw) or raw.lower().endswith(_CASE_EXTS) and os.sep in raw
     if not looks_like_path:
+        # A case id built earlier (week build / chat agent) that this process no longer knows,
+        # e.g. after a restart with the page still open: find its file again. Without this,
+        # "ieee39_uced_NE_2020_07" would fall through to the catalog's fuzzy resolver and
+        # silently load ieee39_uced instead.
+        found = _find_built_case(raw)
+        if found:
+            return found
+        if "_" in raw:                               # catalog aliases with "_" are all shipped
+            raise PermissionError(
+                f"case {raw!r} is not available on this server: cases built in a session are "
+                f"forgotten when the server restarts and no file named {raw}.xlsx was found "
+                f"under the case directories. Rebuild it, or pick another case.")
         return raw                                   # catalog keyword ("5bus", "ieee39") -> resolver
     p = Path(raw).expanduser().resolve()
     if p.suffix.lower() not in _CASE_EXTS or not p.is_file():
@@ -228,6 +241,72 @@ def _alias_for_case(case_ref: Optional[str]) -> Optional[str]:
             return alias
     # A bare alias we recognise but don't surface in the picker.
     return raw if raw in SHIPPED_CASES else None
+
+
+def _register_agent_case(case_ref: Optional[str]) -> Optional[str]:
+    """Register a case FILE the chat agent loaded that no alias covers; return its id.
+
+    A route (e.g. a route extension that builds period cases) can load a workbook the
+    picker has never seen. Without an alias the sidebar, report and Run solve keep the
+    previous case's name while the System holds the new one. Register it like a
+    /api/week/build case so every endpoint names and resolves it. Only existing case files
+    under the allowed case roots qualify (same policy as ``_resolve_case_ref``).
+    """
+    if not case_ref:
+        return None
+    try:
+        p = Path(str(case_ref)).expanduser().resolve()
+    except (OSError, ValueError):
+        return None
+    if p.suffix.lower() not in _CASE_EXTS or not p.is_file():
+        return None
+    if not any(_is_under(p, root) for root in _case_roots()):
+        return None
+    case_id, n = p.stem, 1
+    while case_id in SHIPPED_CASES or (case_id in _custom_cases and _custom_cases[case_id]["path"] != str(p)):
+        n += 1
+        case_id = f"{p.stem}_{n}"                    # never shadow a shipped alias or another file
+    n_slots = None
+    if _ctx.system is not None and Path(_ctx.case_path or "").resolve() == p:
+        n_slots = int(getattr(getattr(_ctx.system, "EDSlot", None), "n", 0) or 0) or None
+    manifest = p.with_suffix(".manifest.json")
+    _custom_cases[case_id] = {
+        "path": str(p),
+        "label": f"{p.stem} · {n_slots} h" if n_slots else p.stem,
+        "n_slots": n_slots,
+        "manifest": str(manifest) if manifest.is_file() else None,
+    }
+    return case_id
+
+
+_BUILT_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*")
+
+
+def _find_built_case(case_id: str) -> Optional[str]:
+    """Path of ``<case_id>.xlsx`` under the directories cases are built into, re-registered.
+
+    Searched: WEEK_DIR, ``<cwd>/data`` and the other case roots (not the whole working dir).
+    Returns None when there is no such file; raises PermissionError when several match.
+    """
+    if not _BUILT_ID_RE.fullmatch(case_id):
+        return None
+    cwd = Path.cwd().resolve()
+    dirs = [WEEK_DIR, cwd / "data"] + [r for r in CASE_ROOTS if r.resolve() != cwd]
+    hits = sorted({p.resolve() for d in dirs if Path(d).is_dir()
+                   for p in Path(d).rglob(f"{case_id}.xlsx") if p.is_file()})
+    if not hits:
+        return None
+    if len(hits) > 1:
+        raise PermissionError(f"case {case_id!r} is ambiguous: {[str(h) for h in hits]}")
+    cid = _register_agent_case(str(hits[0]))
+    return _custom_cases[cid]["path"] if cid else None
+
+
+def _is_under(path: Path, root: Path) -> bool:
+    try:
+        return path.is_relative_to(root.resolve())
+    except (OSError, ValueError):
+        return False
 
 
 # AMS raises these when a case lacks the generation-cost / reserve / temporal data
@@ -494,6 +573,9 @@ def _ensure_agent() -> Optional[str]:
         # Share the viewer's AMSContext so chat + viewer act on one System.
         graph = create_workflow(llm, prompts, _ctx)
         _agent["graph"] = graph
+        # route extensions from $LTB_EXTENSIONS that failed to load were skipped; say so once
+        from agent.extensions import load_warnings
+        _agent["notice"] = "; ".join(load_warnings()) or None
         _agent["state"] = create_initial_state(
             case_path=_state["alias"] or DEFAULT_CASE_ALIAS,
             routine=_ctx.routine_name or DEFAULT_ROUTINE,
@@ -505,6 +587,12 @@ def _ensure_agent() -> Optional[str]:
             "LLM backend (Ollama or OPENAI_API_KEY) to enable chat."
         )
     return _agent["error"]
+
+
+def _with_notice(replies: List[str]) -> List[str]:
+    """Prefix the first reply after an agent build with skipped-extension warnings."""
+    notice = _agent.pop("notice", None)
+    return ([f"⚠ Route extension not loaded — {notice}"] if notice else []) + replies
 
 
 def _reset_agent() -> None:
@@ -646,7 +734,9 @@ def _agent_turn(message: str, routine: Optional[str],
     session = None
     final_inputs = _agent["state"].get("inputs")
     if final_inputs is not None:
-        alias = _alias_for_case(getattr(final_inputs, "case_path", None))
+        case_path = getattr(final_inputs, "case_path", None)
+        # a file the agent built/loaded that no alias covers gets one, so the UI can name it
+        alias = _alias_for_case(case_path) or _register_agent_case(case_path)
         if alias:
             _state["alias"] = alias          # keep the viewer endpoints consistent
         routine_name = (getattr(final_inputs, "routine", None) or "").upper() or None
@@ -659,7 +749,7 @@ def _agent_turn(message: str, routine: Optional[str],
     _last_solve.clear()  # Any agent turn may have changed the compiled model.
     return {
         "ok": True,
-        "reply": "\n\n".join(replies) if replies else "_(no reply)_",
+        "reply": "\n\n".join(_with_notice(replies)) if replies else "_(no reply)_",
         "results": state.get("results"),
         "session": session,
     }
