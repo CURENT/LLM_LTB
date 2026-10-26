@@ -34,9 +34,8 @@ class MessageClassifier(BaseModel):
         description=(
             "True when the message asks for MORE THAN ONE action that must run "
             "in sequence — e.g. load/switch a case AND run it, change a value "
-            "AND solve, or 'do A then B'. Works in any language (English or "
-            "Chinese). Examples that are multi-step: 'switch to ieee39 and run "
-            "UC', '换成ieee39节点，运行uc问题', 'change load PQ_1 to 3.2 then "
+            "AND solve, or 'do A then B'. Examples that are multi-step: "
+            "'switch to ieee39 and run UC', 'change load PQ_1 to 3.2 then "
             "solve'. A single action (just 'run RTED', just 'load ieee14') is "
             "NOT multi-step."
         ),

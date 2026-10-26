@@ -292,7 +292,7 @@ def parse_prompt(ctx, message, llm):
         "from options. A bus number is NOT a load index: resolve via the bus field, and require "
         "exactly one eligible load. Do not invent defaults for unspecified percentages or targets. "
         "percent_delta is in PERCENT POINTS: increase 20% means 20, NOT 0.2; "
-        "decrease 10% means -10, NOT -0.1. For example, 节点4负荷增加20% maps via "
+        "decrease 10% means -10, NOT -0.1. For example, increasing the load at bus 4 by 20% maps via "
         "bus=4 to its load_idx and percent_delta=20. A percentage scales CURRENT active load, "
         "not its base value. q0 stays unchanged. "
         "Topology edits set the named line only; existing outages remain and may yield N-k. "

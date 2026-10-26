@@ -97,7 +97,7 @@ After the test passes, mark task #11 completed.
 
 ### Possible follow-ups the user mentioned but I haven't done
 
-1. **The `?` help-shown-once auto-mechanism** is implemented but the user explicitly said "选好solver之后，第一次提供这个提示词" — DONE (cli.py calls `display_help()` after `display_initial_case_summary`).
+1. **The `?` help-shown-once auto-mechanism** is implemented; the user requested that the hint appear once after selecting a solver — DONE (`cli.py` calls `display_help()` after `display_initial_case_summary`).
 
 2. **Solver-log highlighting** ("Constraint Check" violations panel after solver log) — partially done. The panel renders, but the user's example had specific items like "Bus 17 voltage 0.913 pu VIOLATION" which only show for ACOPF (since DC routines don't have bus voltages). For the 5-bus / RTED demo, the panel will likely be near-empty or show only the power-balance line. If the user wants more aggressive violation surfacing, extend `check_constraints` to also flag `pglb` / `pgub` / `plflb` / `plfub` direct dual values from `ss.RTED.constrs`.
 

@@ -48,7 +48,7 @@ CASE_EXPECT = {
     "ieee14_raw": ["!ieee14 raw", "!raw", "!ieee 14 psse", "!ieee14 raw file"],
 
     # IEEE 39-bus family (default = ieee39)
-    "ieee39": ["ieee39", "ieee 39", "39", "39 bus", "ieee-39", "换成ieee39"],
+    "ieee39": ["ieee39", "ieee 39", "39", "39 bus", "ieee-39", "switch to ieee39"],
     "ieee39_uced": ["ieee39 uced", "ieee 39 uced", "ieee39 uc"],
     "ieee39_uced_esd1": ["!esd1", "!ieee39 esd1", "!ieee39 storage",
                          "!ieee39 battery", "!ieee39 uced esd1"],
@@ -84,7 +84,6 @@ CASE_EXPECT = {
 TEMPLATES = [
     "{x}", "change to {x}", "load {x}", "switch to {x}", "use {x}",
     "load the {x} case", "switch case to {x}", "run on {x}",
-    "换成{x}", "加载{x}", "切换到{x}",
 ]
 
 

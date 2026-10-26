@@ -6,11 +6,8 @@ factory that strips and formats them.
 
 # ---------------------------------------------------------------- Classifier
 CLASSIFIER_SYSTEM = """
-You classify the user's message into ONE of seven AMS routes.
-
-The message may be written in English OR Chinese — classify by MEANING, not by
-matching English keywords. (e.g. "换成ieee39" = switch case to ieee39 → case_io;
-"运行/求解/计算" = run/solve → solve; "改成UC/切换到UC" = set routine → configure.)
+You classify the user's message into ONE of seven AMS routes. Messages are in
+English; classify by meaning rather than exact keyword matching.
 
 - **question_general**: Conceptual / educational questions about AMS, scheduling, optimization, DCOPF, RTED, ED, UC, CVXPY, cvxpy-based formulations, market simulation, ANDES integration.
   Examples: "What is RTED?", "Difference between DCOPF and RTED?", "Why disable plflb?", "What does config_t do?"
@@ -19,23 +16,23 @@ matching English keywords. (e.g. "换成ieee39" = switch case to ieee39 → case
   Examples: "What routines can I run?", "Which solvers are installed?", "List loads", "Show generators", "What cases ship with AMS?"
 
 - **case_io**: Load, inspect, or export a case file. A case may be named by a bus NUMBER (e.g. "5", "14 bus", "118"), a NAME keyword (`pjm`, `ieee14`, `ieee39`, `wecc`, `npcc`, `hawaii`, `pglib`), a variant keyword (`uced`, `conn`, `ev`, `matpower`), or a file path. The exact wording does not matter — a downstream resolver maps it to the right case.
-  Examples: "Load case 5bus/pjm5bus_demo.xlsx", "change to 5 bus system", "use the pjm case", "switch to ieee14", "39 bus", "load matpower/case118.m", "换成ieee39节点", "Show me the current case info"
+  Examples: "Load case 5bus/pjm5bus_demo.xlsx", "change to 5 bus system", "use the pjm case", "switch to ieee14", "39 bus", "load matpower/case118.m", "Show me the current case info"
 
 - **configure**: Change ROUTINE settings — active routine, solver, config_t (interval), enable/disable constraints.
-  Examples: "Use solver SCS", "Switch routine to DCOPF", "切换到UC", "Set interval to 1 hour", "Disable plflb and plfub", "Re-enable rgu"
+  Examples: "Use solver SCS", "Switch routine to DCOPF", "Switch to UC", "Set interval to 1 hour", "Disable plflb and plfub", "Re-enable rgu"
 
 - **modify**: Change the PHYSICAL system — load values, generator on/off, line on/off, line rate_a.
   Examples: "Change load PQ_1 to 3.2", "Trip generator PV_1", "Trip line Line_2", "Restore PV_1", "Set Line_3 rate to 0.6"
 
 - **formulate**: Change the optimization structure with a supported template.
-  Examples: "Replace PV_1 with an IBR with 1.0 pu available power and a $20/pu curtailment penalty", "把PV_1替换成IBR，可用功率1.0 pu，弃电成本20"
+  Examples: "Replace PV_1 with an IBR with 1.0 pu available power and a $20/pu curtailment penalty"
 
 - **solve**: Run the active routine (RTED, DCOPF, ED, UC, ...).
-  Examples: "Solve", "Run RTED", "运行", "求解", "Run the dispatch", "Solve with CLARABEL"
+  Examples: "Solve", "Run RTED", "Run the dispatch", "Solve with CLARABEL"
 
 Pick the BEST single category for ``message_type``. If the message clearly mixes
 multiple actions that must run in sequence (e.g. "change load PQ_1 to 3.2 then
-solve", or "换成ieee39节点，运行uc问题" = switch to ieee39 AND run UC), pick the
+solve", or "switch to ieee39 and run UC"), pick the
 LAST action for ``message_type`` AND set ``is_multi_step`` = true so the planner
 can split it. A single action is NOT multi-step.
 """.strip()
@@ -224,7 +221,7 @@ Rules:
 4. Always end with ``solve`` if the user asks for results / plot / objective
    after their changes.
 
-Example — user: "换成ieee39节点，运行uc问题" (switch to ieee39, run the UC problem):
+Example — user: "Switch to ieee39 and run UC":
   step 1 case_io   "load case ieee39"
   step 2 configure "set the active routine to UC"
   step 3 solve     "run the active routine"

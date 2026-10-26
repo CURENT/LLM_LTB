@@ -23,13 +23,12 @@ from agent.utils.display import display_constraint_check, display_executing_node
 
 
 def _parse_routine(text: str) -> Optional[str]:
-    """Return a routine name explicitly requested in ``text`` (e.g. "run UC",
-    "运行uc问题"), or ``None`` if none is named.
+    """Return a routine name explicitly requested in ``text`` (e.g. "run UC"),
+    or ``None`` if none is named.
 
     Matches known AMS routine names, longest first (so ``RTED2`` wins over
-    ``RTED``). Boundaries exclude ASCII letters/digits only, so a name embedded
-    in CJK text ("运行uc问题") still matches while substrings inside larger
-    English words ("reduce" → not "uc") do not.
+    ``RTED``). Boundaries exclude ASCII letters/digits, so substrings inside
+    larger English words ("reduce" → not "uc") do not match.
     """
     if not text:
         return None
@@ -108,7 +107,7 @@ def solve_agent(state: State, llm, prompts, ams_ctx):
                           message=msg, timestamp=datetime.now())
         return {"messages": [reply], "node_response": nr}
 
-    # If the user named a routine in this message (e.g. "run UC", "运行uc问题"),
+    # If the user named a routine in this message (e.g. "run UC"),
     # honor it; otherwise fall back to the active routine from inputs.
     requested_routine = _parse_routine(user_text)
     routine_name = requested_routine or inputs.routine

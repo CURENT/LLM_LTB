@@ -71,7 +71,7 @@ class ControlsTest(unittest.TestCase):
         llm.with_structured_output.return_value.invoke.return_value = ControlPlan(
             intent="update", actions=[{"operation": "scale_pq_load", "parameters": {"load_idx": "PQ_3", "percent_delta": .2}}])
         original = ctx.system
-        self.assertFalse(parse_prompt(ctx, "把节点4的负荷增加20%", llm).ok)
+        self.assertFalse(parse_prompt(ctx, "Increase the load at bus 4 by 20%", llm).ok)
         self.assertIs(ctx.system, original)
 
     def test_topology_rebuild_and_restore_after_solve(self):
@@ -136,7 +136,7 @@ class ControlsTest(unittest.TestCase):
         with patch.object(main, "_ctx", ctx), patch.object(main, "_state", {"alias": "ieee14"}), \
              patch.object(main, "_agent", {"llm": llm}), patch.object(main, "_ensure_agent", return_value=None):
             client = TestClient(main.app)
-            response = client.post("/api/chat", json={"message": "把节点4的负荷增加10%", "case": "ieee14", "routine": "DCOPF"})
+            response = client.post("/api/chat", json={"message": "Increase the load at bus 4 by 10%", "case": "ieee14", "routine": "DCOPF"})
             self.assertTrue(response.json()["ok"], response.text)
             payload = client.get("/api/parameters", params={"case": "ieee14", "routine": "DCOPF"}).json()
             self.assertEqual(payload["values"]["scale_pq_load"]["percent_delta"], 10)

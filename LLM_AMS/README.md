@@ -524,8 +524,8 @@ bounded; arbitrary new variables and constraints are not supported.
 Load changes scale **current p0**, leave q0 unchanged, and require an online,
 positive PQ load device, regardless of its connected bus type (PQ, PV or slack).
 The default PJM demo supports PQ_1, PQ_2 and PQ_3. For example, request
-`把负荷 PQ_1 增加10%`. In IEEE 14-bus (or its UC/ED variant for economic solves), try:
-`把节点4的负荷增加10%` or `切断线路 Line_2` in the top Assistant.
+`increase load PQ_1 by 10%`. In IEEE 14-bus (or its UC/ED variant for economic solves), try:
+`increase the load at bus 4 by 10%` or `trip line Line_2` in the top Assistant.
 Use the displayed exact indices for other cases. Outages accumulate: cutting
 one line from an intact case is N-1; further cuts are N-k. Restore lines using
 the Online checkbox, or Reset the whole case. The slider shows a signed percentage;
