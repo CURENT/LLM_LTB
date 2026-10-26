@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "constraint_labels": {
     "pb": "Nodal active-power balance",
     "sba": "Slack-bus voltage-angle reference",
@@ -43,6 +43,7 @@
       "id": "scale_pq_load",
       "label": "PQ load change",
       "category": "physical_parameter",
+      "effect": "scenario",
       "enabled": true,
       "description": "Scale CURRENT active power p0 of an online positive PQ load device, regardless of whether its bus is PQ, PV or slack. Reactive q0 is unchanged. A bus id must be resolved through options, never guessed as a load id.",
       "aliases": ["load", "demand", "pq", "bus load"],
@@ -60,6 +61,7 @@
       "id": "set_line_status",
       "label": "Line outage (N-1)",
       "category": "topology",
+      "effect": "scenario",
       "enabled": true,
       "description": "Switch one transmission line on or off to study a topology contingency.",
       "aliases": ["line", "branch", "trip", "outage", "n-1", "topology"],
@@ -77,6 +79,7 @@
       "id": "set_generator_status",
       "label": "Generator status",
       "category": "topology",
+      "effect": "scenario",
       "enabled": true,
       "description": "Switch one static generator on or off.",
       "aliases": ["generator", "gen", "unit"],
@@ -93,6 +96,7 @@
       "id": "set_line_rate",
       "label": "Line rating",
       "category": "physical_parameter",
+      "effect": "scenario",
       "enabled": true,
       "description": "Set the rate_a thermal limit of one line.",
       "aliases": ["rate", "limit", "thermal", "rating"],
@@ -109,6 +113,7 @@
       "id": "set_config_t",
       "label": "Routine interval",
       "category": "routine_parameter",
+      "effect": "scenario",
       "enabled": true,
       "routine_families": ["rted", "rted2", "ed", "ed2", "uc", "uc2"],
       "description": "Set routine.config.t in hours for routines whose optimization horizon or dispatch interval is time-based. This control is intentionally hidden for power-flow-only routines such as DCPF/PFlow.",
@@ -124,6 +129,7 @@
     {
       "id": "set_constraint_status", "label": "Constraint status", "enabled": true,
       "category": "constraint",
+      "effect": "formulation",
       "description": "Enable or disable an existing constraint of the active routine by its exact name.",
       "parameters": {
         "constraint": {"type": "select", "source": "constraints", "required": true},
@@ -134,6 +140,7 @@
     {
       "id": "set_ramping_status", "label": "Generator ramping limits", "enabled": true,
       "category": "constraint",
+      "effect": "formulation",
       "description": "Enable or disable all ramp-up, ramp-down and initial ramp constraints that actually exist in the selected AMS routine. AMS ED is multi-period and includes ramping; DCOPF has no ramping constraints.",
       "requires_constraints": ["rgu", "rgd", "rgu0", "rgd0"],
       "parameters": {"enabled": {"type": "boolean", "label": "Ramping enabled", "default": true}},
@@ -141,8 +148,9 @@
     },
     {
       "id": "add_dispatch_cost", "label": "Additional dispatch cost", "enabled": true,
-      "category": "objective", "routines": ["DCOPF"],
-      "description": "Add coefficient * sum(pg) to the DCOPF objective. Repeated calls update this coefficient, not duplicate the term. Set zero to remove its cost effect. Incompatible with the IBR template until reset.",
+      "category": "objective", "effect": "formulation", "template": "linear_dispatch_cost",
+      "routines": ["DCOPF", "ED", "UC"],
+      "description": "Add coefficient * sum(pg) to the objective, across all time slots for ED/UC. Repeated calls update this coefficient, not duplicate the term. Set zero to remove its cost effect. Incompatible with the IBR template until reset.",
       "parameters": {
         "coefficient": {"type": "number", "unit": "$/pu", "min": 0, "required": true}
       },
@@ -150,8 +158,9 @@
     },
     {
       "id": "set_total_generation_cap", "label": "Total generation cap", "enabled": true,
-      "category": "constraint", "routines": ["DCOPF"],
-      "description": "Add or update sum(pg) <= limit in DCOPF. This can make a case infeasible. Incompatible with the IBR template until reset.",
+      "category": "constraint", "effect": "formulation", "template": "total_generation_cap",
+      "routines": ["DCOPF", "ED", "UC"],
+      "description": "Add or update sum(pg) <= limit, across all time slots for ED/UC. This can make a case infeasible. Incompatible with the IBR template until reset.",
       "parameters": {
         "limit": {"type": "number", "unit": "pu", "min": 0, "required": true}
       },
@@ -159,7 +168,7 @@
     },
     {
       "id": "replace_generator_with_ibr", "label": "IBR replacement", "enabled": true,
-      "category": "formulation", "routines": ["DCOPF"],
+      "category": "formulation", "effect": "formulation", "template": "ibr_replacement", "routines": ["DCOPF"],
       "description": "Replace one online conventional generator with IBR dispatch pibr and curtailment pcurt variables. Add dispatch_cost*pibr + curtailment_cost*pcurt to objective; add nonnegative bounds, availability equality and nodal balance injection. One replacement per reset; cannot combine with other structural templates.",
       "parameters": {
         "generator_idx": {"type": "select", "source": "generators", "required": true},

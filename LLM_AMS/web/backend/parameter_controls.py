@@ -23,6 +23,7 @@ class ControlResult:
     message: str
     operation: str | None = None
     parameters: dict | None = None
+    audit: list[dict] | None = None
 
     def as_dict(self):
         return asdict(self)
@@ -78,6 +79,28 @@ def _routine_controls(ctx, cfg, payload=None):
     return available, unavailable
 
 
+FORMULATION_TEMPLATES = {
+    "add_dispatch_cost": "linear_dispatch_cost",
+    "set_total_generation_cap": "total_generation_cap",
+    "replace_generator_with_ibr": "ibr_replacement",
+}
+
+
+def _check_control_contract(control):
+    """Reject a catalog entry whose declared effect does not match its compiler."""
+    operation = control["id"]
+    expected = FORMULATION_TEMPLATES.get(operation)
+    effect = control.get("effect")
+    if effect not in ("scenario", "formulation"):
+        raise ValueError(f"{operation}: effect must be scenario or formulation")
+    if expected and (effect != "formulation" or control.get("template") != expected):
+        raise ValueError(f"{operation}: expected formulation template {expected}")
+    if not expected:
+        declared = "formulation" if operation in ("set_constraint_status", "set_ramping_status") else "scenario"
+        if effect != declared or control.get("template"):
+            raise ValueError(f"{operation}: expected {declared} effect without a template")
+
+
 def _records(model, columns):
     return [{name: (value.item() if hasattr(value, "item") else value)
              for name in columns
@@ -94,6 +117,8 @@ def _state(ctx):
 
 def parameter_payload(ctx):
     cfg = load_control_config()
+    for control in cfg.get("controls", []):
+        _check_control_contract(control)
     if ctx.system is None:
         return {"config": cfg, "available_controls": [], "unavailable_controls": [],
                 "options": {}, "values": {}}
@@ -106,6 +131,20 @@ def parameter_payload(ctx):
     statuses = {name: (not c.is_disabled) for name, c in constrs.items()}
     ramps = [name for name in cfg.get("ramping_constraints", []) if name in statuses]
     values = dict(_state(ctx))
+    # Routine-specific values must come from the active model. A stored value
+    # from ED must never appear as an applied UC or DCOPF formulation edit.
+    for operation, service, field in (
+        ("add_dispatch_cost", "configured_cost", "coefficient"),
+        ("set_total_generation_cap", "configured_cap", "limit"),
+    ):
+        if hasattr(rtn, service):
+            values[operation] = {field: float(getattr(rtn, service).v[0])}
+        else:
+            values.pop(operation, None)
+    if hasattr(rtn.config, "t"):
+        values["set_config_t"] = {"t": float(rtn.config.t)}
+    else:
+        values.pop("set_config_t", None)
     if ramps:
         values["set_ramping_status"] = {"enabled": all(statuses[name] for name in ramps)}
     payload = {"config": cfg, "routine": ctx.routine_name,
@@ -123,6 +162,8 @@ def parameter_payload(ctx):
     available, unavailable = _routine_controls(ctx, cfg, payload)
     payload["available_controls"] = available
     payload["unavailable_controls"] = unavailable
+    payload["scenario_controls"] = [c for c in available if c["effect"] == "scenario"]
+    payload["formulation_controls"] = [c for c in available if c["effect"] == "formulation"]
     return payload
 
 
@@ -170,19 +211,29 @@ def _validate(ctx, operation, params):
 def _candidate(ctx):
     memo = {}
     for routine in ctx.system.routines.values():
-        cache = getattr(getattr(getattr(routine, "om", None), "prob", None), "_solver_cache", None)
+        prob = getattr(getattr(routine, "om", None), "prob", None)
+        cache = getattr(prob, "_solver_cache", None)
         if cache is not None:
             memo[id(cache)] = {}
+        # SCIP stores a native pyscipopt Model in CVXPY solve statistics. It
+        # cannot be deep-copied, and is not part of the optimization model to
+        # be edited. Keep the solved numeric values, discard solver diagnostics.
+        stats = getattr(getattr(prob, "_solver_stats", None), "extra_stats", None)
+        if isinstance(stats, dict):
+            memo[id(stats)] = {}
+        solution = getattr(getattr(prob, "_solution", None), "attr", None)
+        if isinstance(solution, dict) and isinstance(solution.get("solver_specific_stats"), dict):
+            memo[id(solution["solver_specific_stats"])] = {}
     return copy.deepcopy(ctx, memo)
 
 
-def _compile(ctx, operation, p):
+def _compile(ctx, template, p):
     if ctx.formulation_edit:
         raise ValueError("Reset the IBR scenario before applying another structural template.")
     rtn = ctx.active_routine()
     rtn.init()
     legacy = "is_eq" in inspect.signature(rtn.addConstrs).parameters
-    if operation == "add_dispatch_cost":
+    if template == "linear_dispatch_cost":
         name = "configured_cost"
         if hasattr(rtn, name):
             getattr(rtn, name).v[:] = p["coefficient"]
@@ -190,13 +241,15 @@ def _compile(ctx, operation, p):
             rtn.addService(name, np.array([p["coefficient"]]))
             term = "sum(mul(configured_cost, pg))" if legacy else "cp.sum(cp.multiply(configured_cost, pg))"
             rtn.obj.e_str = f"({rtn.obj.e_str}) + {term}"
-    else:
+    elif template == "total_generation_cap":
         if hasattr(rtn, "configured_cap"):
             rtn.configured_cap.v[:] = p["limit"]
         else:
             rtn.addService("configured_cap", np.array([p["limit"]]))
             expr = "sum(pg) - configured_cap" if legacy else "cp.sum(pg) - configured_cap <= 0"
             rtn.addConstrs("configured_total_generation", expr)
+    else:
+        raise ValueError(f"Unknown formulation template: {template}")
     rtn.init(force=True, force_mats=True, force_om=True)
     rtn.om.init(force=True)
     if not rtn.om.prob.is_dcp():
@@ -237,12 +290,14 @@ def _apply(ctx, operation, p):
         message = f"Constraint {p['constraint']}: {'enabled' if p['enabled'] else 'disabled'}."
     elif operation == "replace_generator_with_ibr":
         from agent.schemas.parameter import FormulationEdit
-        if any(k in _state(ctx) for k in ("add_dispatch_cost", "set_total_generation_cap")):
+        if any(hasattr(ctx.active_routine(), service) for service in ("configured_cost", "configured_cap")):
             raise ValueError("Reset the other structural templates before adding the IBR template.")
         ctx.apply_formulation_edit(FormulationEdit(**p))
         message = "Added IBR dispatch/curtailment variables, objective terms, availability and nodal balance constraints."
     elif operation in ("add_dispatch_cost", "set_total_generation_cap"):
-        _compile(ctx, operation, p)
+        control = next(c for c in load_control_config()["controls"] if c["id"] == operation)
+        _check_control_contract(control)
+        _compile(ctx, control["template"], p)
         message = f"Applied {operation}: {p}."
     else:
         raise ValueError(load_control_config()["unsupported_message"])
@@ -254,6 +309,49 @@ def _apply(ctx, operation, p):
     return message
 
 
+def _read_back(ctx, operation, p):
+    """Read the effective value from AMS after compilation, independent of the LLM plan."""
+    rtn = ctx.active_routine()
+    ss = ctx.system
+    if operation == "scale_pq_load":
+        return {"p0": float(ss.PQ.get(src="p0", idx=p["load_idx"], attr="v"))}
+    if operation == "set_config_t":
+        return {"t": float(rtn.config.t)}
+    if operation == "set_line_rate":
+        return {"rate_a": float(ss.Line.get(src="rate_a", idx=p["line_idx"], attr="v"))}
+    if operation == "set_line_status":
+        return {"online": bool(ss.Line.get(src="u", idx=p["line_idx"], attr="v"))}
+    if operation == "set_generator_status":
+        return {"online": bool(ss.StaticGen.get(src="u", idx=p["gen_idx"], attr="v"))}
+    if operation == "add_dispatch_cost":
+        return {"coefficient": float(rtn.configured_cost.v[0])}
+    if operation == "set_total_generation_cap":
+        return {"limit": float(rtn.configured_cap.v[0])}
+    if operation == "set_constraint_status":
+        return {"enabled": not rtn.constrs[p["constraint"]].is_disabled}
+    if operation == "set_ramping_status":
+        names = [name for name in load_control_config()["ramping_constraints"] if name in rtn.constrs]
+        return {"enabled": all(not rtn.constrs[name].is_disabled for name in names)}
+    if operation == "replace_generator_with_ibr":
+        return {"generator_idx": ctx.formulation_edit["generator_idx"],
+                "available_power": float(rtn.ibr_pavail.v[0]),
+                "dispatch_cost": float(rtn.ibr_dispatch_cost.v[0]),
+                "curtailment_cost": float(rtn.ibr_curtailment_cost.v[0])}
+    return {}
+
+
+def _verify_read_back(operation, expected_values, observed):
+    if not observed:
+        raise ValueError(f"{operation}: no live AMS value is available to verify")
+    for name, actual in observed.items():
+        expected = expected_values[name]
+        same = (math.isclose(expected, actual, rel_tol=1e-9, abs_tol=1e-10)
+                if isinstance(expected, (int, float)) and not isinstance(expected, bool)
+                else expected == actual)
+        if not same:
+            raise ValueError(f"{operation}.{name}: requested {expected!r}, effective value {actual!r}")
+
+
 def apply_controls(ctx, actions):
     """Commit the entire plan only after every validation and build succeeds."""
     try:
@@ -261,16 +359,29 @@ def apply_controls(ctx, actions):
             raise ValueError("Provide between 1 and 20 configured changes.")
         candidate = _candidate(ctx)
         messages = []
+        audit = []
         for action in actions:
             p = _validate(candidate, action["operation"], action["parameters"])
+            expected_values = dict(p)
+            if action["operation"] == "scale_pq_load":
+                old_p0 = float(candidate.system.PQ.get(src="p0", idx=p["load_idx"], attr="v"))
+                expected_values["p0"] = old_p0 * (1 + p["percent_delta"] / 100)
             messages.append(_apply(candidate, action["operation"], p))
+            observed = _read_back(candidate, action["operation"], p)
+            _verify_read_back(action["operation"], expected_values, observed)
+            audit.append({"operation": action["operation"], "requested": p,
+                          "expected_effective": expected_values, "observed": observed,
+                          "verified": bool(observed)})
         # CVXPY deep copies carry canonicalization IDs from the original graph.
         # Rebuild every initialized routine before publishing the candidate.
         for routine in candidate.system.routines.values():
             if routine.initialized:
                 routine.om.init(force=True)
+        # Each action was verified immediately after it ran. Rechecking every
+        # earlier receipt here would reject valid batches that update the same
+        # control twice: the final value necessarily differs from step one.
         ctx.__dict__.update(candidate.__dict__)
-        return ControlResult(True, "\n".join(messages), actions[-1]["operation"], p)
+        return ControlResult(True, "\n".join(messages), actions[-1]["operation"], p, audit)
     except Exception as exc:
         return ControlResult(False, str(exc))
 
@@ -316,6 +427,19 @@ def parse_prompt(ctx, message, llm):
                 value = abs(float(action["parameters"]["percent_delta"]))
                 if not any(math.isclose(value, p) for p in percents):
                     raise ValueError("Model percentage disagrees with the explicit percentage in your request. Please retry with percent_delta in percent units.")
+        # For a single direct numeric edit, compare the plan with a literal value
+        # following "to", "at", "of" or "=" in the user's own text. Readback below
+        # checks execution; this check catches a model that planned 0.09 for 0.9.
+        if len(actions) == 1:
+            direct_fields = {"set_config_t": "t", "set_line_rate": "rate_a",
+                             "add_dispatch_cost": "coefficient", "set_total_generation_cap": "limit"}
+            action = actions[0]
+            field = direct_fields.get(action["operation"])
+            if field:
+                literals = re.findall(r"(?:\b(?:to|at|of|equals)\s*|=\s*)\$?\s*([-+]?\d+(?:\.\d+)?)\b", message, re.I)
+                if literals and not any(math.isclose(float(action["parameters"][field]), float(v),
+                                                      rel_tol=1e-9, abs_tol=1e-10) for v in literals):
+                    raise ValueError(f"Model {field} disagrees with the explicit number in your request.")
         return apply_controls(ctx, actions)
     except Exception as exc:
         return ControlResult(False, f"LLM configuration lookup failed; no changes applied: {exc}")

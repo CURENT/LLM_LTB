@@ -384,7 +384,11 @@ function renderParameters(payload) {
     body.innerHTML = `<p class="empty-note">No parameter controls are available for ${esc(payload.routine || state.routine)} on this case.</p>`;
     return;
   }
+  let previousEffect = null;
   body.innerHTML = controls.map(c => {
+    const heading = c.effect !== previousEffect
+      ? `<h3 class="parameter-group">${c.effect === "formulation" ? "Optimization formulation" : "Scenario inputs"}</h3>` : "";
+    previousEffect = c.effect;
     const saved = payload.values?.[c.id] || {};
     const emptySource = Object.values(c.parameters).some(s => s.source && !(opts[s.source] || []).length);
     const unavailable = c.available === false || emptySource;
@@ -419,7 +423,7 @@ function renderParameters(payload) {
       }
       return `<div class="param-field"><label for="${id}">${esc(spec.label || name.replaceAll("_", " "))} ${esc(spec.unit || "")}</label>${input}</div>`;
     }).join("");
-    return `<fieldset data-operation="${c.id}" ${unavailable ? "disabled" : ""}>
+    return `${heading}<fieldset data-operation="${c.id}" ${unavailable ? "disabled" : ""}>
       <legend>${esc(c.label)} ${infoIcon(c.description)}</legend>
       ${unavailable ? `<p class="control-note">${esc(c.unavailable_reason || "No eligible devices in this case.")}</p>` : ""}${fields}</fieldset>`;
   }).join("");
@@ -473,6 +477,20 @@ function renderParameters(payload) {
   });
 }
 
+function renderParameterAudit(result) {
+  const box = $("parameter-audit");
+  if (!box) return;
+  if (!result?.ok || !result.audit?.length) {
+    box.textContent = "";
+    return;
+  }
+  box.innerHTML = `<strong>Applied changes</strong>` + result.audit.map(row => {
+    const checks = Object.entries(row.observed || {}).map(([key, value]) =>
+      `${esc(key)}: expected ${esc(row.expected_effective?.[key] ?? row.requested[key])}, effective ${esc(value)}`).join(" · ");
+    return `<div>${esc(row.operation)} — ${checks || "applied; readback unavailable"}</div>`;
+  }).join("");
+}
+
 async function applyParameterForm() {
   if (state.busy || !state.parameters) return;
   for (const input of $("parameters-body").querySelectorAll(".parameter-range-bounds input")) {
@@ -515,6 +533,7 @@ async function resetParameters() {
   try {
     const payload = await API.resetParameters({ routine: state.routine, case: state.case });
     renderParameters(payload.parameters);
+    renderParameterAudit(null);
     await refreshAfterParameter(payload.result);
   } catch (err) {
     setStatus(`error: ${err.message}`, "err");
@@ -525,6 +544,7 @@ async function resetParameters() {
 
 async function refreshAfterParameter(result) {
   if (!result || !result.ok) {
+    renderParameterAudit(null);
     setStatus(result ? result.message : "parameter change failed", "err");
     return;
   }
@@ -534,6 +554,7 @@ async function refreshAfterParameter(result) {
   ]);
   renderFormulation(f);
   renderCase(c);
+  renderParameterAudit(result);
   resetResults();
   setStatus(result.message, "ok");
 }
@@ -607,6 +628,7 @@ async function refresh() {
     renderCase(c);
     renderSolvers(s);
     renderParameters(p);
+    renderParameterAudit(null);
     resetResults();             // prior solve is stale for the new routine/case
     setStatus(`${state.routine} · ${state.case}`, "ok");
   } catch (err) {
@@ -907,7 +929,10 @@ async function sendChat() {
     renderFormulation(await API.formulation(state.routine));
     renderCase(await API.case(state.routine, state.case));
     renderParameters(await API.parameters(state.routine, state.case));
+    if (res.control) renderParameterAudit(res.control);
     if (!res.results) resetResults();
+  } else if (res?.control) {
+    renderParameterAudit(null);
   }
   // If the agent produced a solve, refresh the results card to match.
   if (res && res.results) {

@@ -1,0 +1,183 @@
+    CURENT Large-scale Testbed (LTB)
+           Monthly Meeting
+                           10/26/2026
+             CURENT, University of Tennessee, Knoxville
+
+ Leadership Team     Dr. Fran Li
+
+    Senior Advisor   Dr. Kevin Tomsovic, Dr. Hantao Cui, Dr. Xin Fang
+                     Dr. Hantao Cui, Dr. Xin Fang, Dr. Jinning Wang,
+Core Development     Nicholas Parsly, Nick West, Zack Malkmus, Junjie Yin,
+                     Matthew Cannavaro, Hank Lin, Jian Han, Dr. Chenchen Li
+
+Other Contributors   Dr. Qiwei Zhang, Dr. Buxin She, Dr. Hang Shuai
+1. Summary
+Community
+ ●   Homepage: https://ltb.curent.org/
+ ●   LinkedIn: https://www.linkedin.com/company/76122605
+ ●   YouTube: https://www.youtube.com/@curentltb
+ ●   GitHub: https://github.com/CURENT
+
+Administration:
+ ●   10/11-13 NAPS 2026 meeting
+ ●   10/21 NASA visit CURENT
+
+Development
+ ●   LLM with LTB AMS
+      o Configuration file update
+      o Revise parameter classification
+      o How to ensure the LLM executes prompt correctly?
+ ●   LLM with LTB Andes
+                                                           2
+Configuration file update
+A reviewed catalog can describe model edits; the compiler applies only declared templates.
+
+ FORMULATION CONTROL SPEC                                              DECLARATION → MODEL CHANGE
+
+   control_id · operation_kind
+   scenario | formulation
+
+   routines · target_scope
+                                                                          Config              Validate                 Compile
+   DCOPF / ED / UC / ACOPF
+                                                                          reviewed      ›       routine ·
+                                                                                                  types        ›       AMS model
+   variables · objective_terms                                            template              bounds ·               operations
+   what the template adds or changes                                                            conflicts
+
+   constraint_templates
+   named, versioned, reviewed blocks
+                                                                               Live AMS model
+   parameters · bounds · units
+   typed values with validation rules                                          Only validated, routine-compatible edits are
+                                                                               applied.
+   preconditions · conflicts ·
+   reset
+   safe composition and recovery
+
+
+
+ Design direction        Replace one-off executor branches with configuration-driven, validated operations.
+
+CURENT | Large-scale Testbed                                                                           Monthly Meeting · 10/26/2026   3
+Revise parameter classification
+Route by what the request changes in the optimization model.
+
+ SCENARIO INPUT                                                          FORMULATION CHANGE
+
+
+    Updates values or availability within                                  Changes variables, objective terms, or
+    an existing model template                                             feasible set
+
+        Load level / demand scaling                                            Add or revise an objective cost term
+
+        Line status or rating                                                  Add / remove a named constraint block
+
+        Routine setting such as config.t                                       Replace PV with an IBR: variables + limits +
+                                                                               cost
+                                                                           Prioritize these structural edits in the formulation
+    Model data changes; decision structure stays fixed.
+                                                                           catalog.
+
+
+
+ CLASSIFICATION RULE
+
+ Data / availability only → scenario           |    New variables, objective terms, or constraints → formulation
+
+
+
+CURENT | Large-scale Testbed                                                                           Monthly Meeting · 10/26/2026   4
+How to ensure the LLM executes a prompt correctly?
+Treat execution as a verifiable transaction, not a reasoning claim.
+
+
+
+   1 REQUEST                        2 PLAN                    3 PRECHECK                       4 APPLY                        5 READ BACK
+
+    “Set a =                                                 a exists · in
+                       ›            a := 0.9         ›                            ›      Declared edit          ›        Actual value = 0.9
+      0.9”                                                      range
+                                Typed, scoped                Routine · units ·             One controlled                    Model diff + solve
+   Target + value
+                                  operation                   preconditions                model operation                   feasibility check
+
+
+
+
+ EXECUTION RECORD
+
+   Intent                                  Applied state                         Model effect                          Outcome
+                                           read back from the live AMS           changed fields / objective /          solver status + feasibility
+   target a · requested value 0.9
+                                           object                                constraints                           checks
+
+
+
+
+ Block and ask when target, units, bounds, or post-apply state do not match.
+
+
+CURENT | Large-scale Testbed                                                                                        Monthly Meeting · 10/26/2026     5
+Revise the optimization problem formulation
+Terminal (CLI):
+     Question 1: doubling a generator's cost weight
+ --> Question 2 Replace PV_1 with an IBR with available power 1 pu, dispatch cost 1 dollar per pu, curtailment penalty 20 dollars
+per pu.
+
+
+formulation_controls.json
+├── version
+├── constraint_labels                                                              Revised Problem                    AMS
+                                                             LLM
+├── ramping_constraints                                                              Formulation                    (revised)
+├── controls
+│ ├── id / label / description
+│ ├── enabled                                                                             •   Add optimization term
+│ ├── routines                                                                            •   Add constraints
+                                                                       Config
+│ ├── requires_constraints                                                                •   Revise certain elements
+                                                                        file
+│ ├── parameters                                                                          •   ……
+│ └── prompt_examples
+└── unsupported_message
+Hank’s PV curve interface
+Revise the optimization problem formulation
+Web UI: the formulation the agent edits
+Revise the optimization problem formulation
+Workflow: the new formulate route
+How to verify or benchmark?
+Benchmark: 9 / 9 checks pass on PJM 5-bus
+How to verify or benchmark?
+
+•   Layered verification: Check user intent, formulation,
+    implementation, and solution feasibility/optimality—not just solver
+    success.
+•   New benchmarks: Combine expert-reviewed components, hand-
+    solvable cases, and mathematical property tests (e.g., relaxing
+    constraints cannot worsen the optimum).
+•   Verifier evaluation: Inject missing constraints, sign errors, and
+    incorrect device mappings; supplement with cross-tool comparisons
+    and expert review.
+Comparison with peer works
+PowerAgent – Harvard Dr. Le Xie
+Comparison with peer works
+
+
+
+
+      PowerAgent emphasizes broad software-level integration, while LLM_AMS
+      targets deeper interaction with optimization formulations.
+                    Acknowledgements
+ Contributors:
+
+
+
+
+ Users:
+
+
+
+
+Acknowledgements:
+

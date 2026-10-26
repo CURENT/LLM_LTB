@@ -515,11 +515,24 @@ live model unchanged. No arbitrary LLM-generated code or expressions execute.
 
 Supported controls: PQ-device active-load scaling, line outage/restoration, generator
 status, line thermal rating, routine interval `config.t` for time-based routines,
-existing constraint enable/disable, DCOPF additional linear dispatch cost, DCOPF
-total-generation cap, and the DCOPF IBR replacement template (new variables,
-objective terms and constraints). Unsupported or
+existing constraint enable/disable, additional linear dispatch cost and total-generation
+cap for DCOPF, ED and UC, and the DCOPF IBR replacement template (new variables,
+objective terms and constraints). ED/UC cost and cap sum generation over every time slot;
+the cap is a horizon total, not a separate limit on each slot. Unsupported or
 ambiguous requests return a message without changes. Structural templates are
 bounded; arbitrary new variables and constraints are not supported.
+
+Each catalog control declares `effect: scenario` or `effect: formulation`. Formulation
+controls with new objective terms, constraints or variables also name a reviewed
+`template`. The backend checks that declaration against its compiler before exposing
+the control. The Parameters panel groups scenario inputs and formulation changes.
+For each successful edit, the API returns an audit receipt with the LLM or manual
+plan and values read back from the live AMS model; a mismatch aborts the entire
+batch. The panel displays these values after an edit. For a single direct numeric
+prompt such as "set the dispatch cost to 0.9", the backend also compares an explicit
+number in the user's text with the LLM's planned value. The receipt verifies model
+state, while the text check covers that common parsing error. More complex requests
+still require a review of the planned operation and target.
 
 Load changes scale **current p0**, leave q0 unchanged, and require an online,
 positive PQ load device, regardless of its connected bus type (PQ, PV or slack).

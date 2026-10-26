@@ -1,6 +1,7 @@
 """Run with the llm-ams Python: python _validate_controls.py."""
 
 import unittest
+import numpy as np
 from unittest.mock import Mock, patch
 
 from fastapi.testclient import TestClient
@@ -112,13 +113,57 @@ class ControlsTest(unittest.TestCase):
         ctx.set_routine("ED")
         ed = {c["id"] for c in parameter_payload(ctx)["available_controls"]}
         self.assertIn("set_config_t", ed)
-        self.assertNotIn("add_dispatch_cost", ed)
+        self.assertIn("add_dispatch_cost", ed)
+        self.assertIn("set_total_generation_cap", ed)
+        self.assertNotIn("replace_generator_with_ibr", ed)
+
+        ctx.set_routine("UC")
+        uc = {c["id"] for c in parameter_payload(ctx)["available_controls"]}
+        self.assertIn("add_dispatch_cost", uc)
+        self.assertIn("set_total_generation_cap", uc)
+        self.assertNotIn("replace_generator_with_ibr", uc)
 
         ctx.set_routine("DCPF")
         dcpf = {c["id"] for c in parameter_payload(ctx)["available_controls"]}
         self.assertNotIn("set_config_t", dcpf)
         self.assertNotIn("add_dispatch_cost", dcpf)
         self.assertFalse(apply_control(ctx, "set_config_t", {"t": 1}).ok)
+
+    def test_explicit_numeric_prompt_must_match_plan(self):
+        ctx = context("ieee14_uced")
+        ctx.set_routine("ED")
+        llm = Mock()
+        llm.with_structured_output.return_value.invoke.return_value = ControlPlan(
+            intent="update", actions=[{"operation": "add_dispatch_cost", "parameters": {"coefficient": .09}}])
+        self.assertFalse(parse_prompt(ctx, "Set the additional dispatch cost to 0.9", llm).ok)
+        self.assertFalse(hasattr(ctx.active_routine(), "configured_cost"))
+        llm.with_structured_output.return_value.invoke.return_value = ControlPlan(
+            intent="update", actions=[{"operation": "add_dispatch_cost", "parameters": {"coefficient": .9}}])
+        result = parse_prompt(ctx, "Set the additional dispatch cost to 0.9", llm)
+        self.assertTrue(result.ok, result.message)
+        self.assertEqual(result.audit[0]["observed"]["coefficient"], .9)
+
+    def test_readback_mismatch_rolls_back_the_model(self):
+        ctx = context("ieee14_uced")
+        ctx.set_routine("ED")
+        original = ctx.system
+        with patch("web.backend.parameter_controls._read_back", return_value={"coefficient": .09}):
+            result = apply_control(ctx, "add_dispatch_cost", {"coefficient": .9})
+        self.assertFalse(result.ok)
+        self.assertIs(ctx.system, original)
+        self.assertFalse(hasattr(ctx.active_routine(), "configured_cost"))
+
+    def test_uc_can_change_formulation_after_scip_solve(self):
+        ctx = context()
+        ctx.set_routine("UC")
+        base = ctx.solve(solver="SCIP")
+        self.assertTrue(base["converged"])
+        result = apply_control(ctx, "add_dispatch_cost", {"coefficient": .9})
+        self.assertTrue(result.ok, result.message)
+        changed = ctx.solve(solver="SCIP")
+        self.assertTrue(changed["converged"])
+        self.assertAlmostEqual(changed["objective"] - base["objective"],
+                               .9 * float(np.sum(changed["pg"])), places=4)
 
     def test_ibr_template(self):
         ctx = context()
@@ -138,6 +183,9 @@ class ControlsTest(unittest.TestCase):
             client = TestClient(main.app)
             response = client.post("/api/chat", json={"message": "Increase the load at bus 4 by 10%", "case": "ieee14", "routine": "DCOPF"})
             self.assertTrue(response.json()["ok"], response.text)
+            receipt = response.json()["control"]["audit"][0]
+            self.assertTrue(receipt["verified"])
+            self.assertAlmostEqual(receipt["observed"]["p0"], receipt["expected_effective"]["p0"])
             payload = client.get("/api/parameters", params={"case": "ieee14", "routine": "DCOPF"}).json()
             self.assertEqual(payload["values"]["scale_pq_load"]["percent_delta"], 10)
             self.assertAlmostEqual(next(r["p0"] for r in payload["options"]["pq_loads"] if r["idx"] == "PQ_3"), .478 * 1.1)

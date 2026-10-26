@@ -323,6 +323,10 @@ table.data-table tbody tr:hover td { background: #fafdff; }
   background: #fff;
 }
 .parameters-head h2 { margin: 0; font-size: 20px; }
+.parameter-group { font-size: 12px; text-transform: uppercase; letter-spacing: .5px; color: var(--accent-ink); margin: 16px 0 8px; }
+.parameter-audit { padding: 0 20px; font-size: 11px; color: var(--accent-ink); overflow-wrap: anywhere; }
+.parameter-audit:not(:empty) { padding-bottom: 10px; border-bottom: 1px solid var(--line); }
+.parameter-audit div { margin-top: 4px; }
 .parameters-body fieldset { min-width: 0; border: 0; border-top: 1px solid var(--line); padding: 14px 0 0; margin: 0; }
 .parameters-body legend { font-size: 14px; font-weight: 600; padding: 0 6px 0 0; }
 .parameters-body fieldset:disabled { opacity: .55; }

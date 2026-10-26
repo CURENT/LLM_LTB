@@ -772,13 +772,17 @@ def create_app() -> FastAPI:
                 live = parameter_payload(_ctx)
                 items = []
                 rtn = _ctx.active_routine()
+                time_suffix = ",t" if routine_family(_ctx.routine_name) in {"ed", "uc"} else ""
+                time_scope = " over all slots" if time_suffix else ""
                 if hasattr(rtn, "configured_cost"):
                     coefficient = float(rtn.configured_cost.v[0])
-                    items.append({"latex": rf"f_{{new}} = f_{{base}} + {coefficient:g}\sum_g p_g", "desc": "Additional dispatch cost ($/pu)."})
+                    items.append({"latex": rf"f_{{new}} = f_{{base}} + {coefficient:g}\sum_{{g{time_suffix}}} p_{{g{time_suffix}}}",
+                                  "desc": "Additional dispatch cost ($/pu)" + time_scope + "."})
                 if hasattr(rtn, "configured_cap"):
                     limit = float(rtn.configured_cap.v[0])
                     enabled = not rtn.configured_total_generation.is_disabled
-                    items.append({"latex": rf"\sum_g p_g \le {limit:g}", "desc": "Total generation cap: " + ("enabled" if enabled else "disabled")})
+                    items.append({"latex": rf"\sum_{{g{time_suffix}}} p_{{g{time_suffix}}} \le {limit:g}",
+                                  "desc": "Total generation cap" + time_scope + ": " + ("enabled" if enabled else "disabled")})
                 disabled = [r["idx"] for r in live["options"]["constraints"] if not r["enabled"]]
                 if disabled:
                     items.append({"latex": "", "desc": "Disabled constraints: " + ", ".join(disabled)})
