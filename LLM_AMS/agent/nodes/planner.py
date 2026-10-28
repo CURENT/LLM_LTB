@@ -6,13 +6,14 @@ from agent.state.app_state import State
 from agent.utils.display import display_executing_node
 
 
-def planner_agent(state: State, llm, prompts):
+def planner_agent(state: State, llm, prompts, schema=MultiStepPlan):
+    # ``schema``: a MultiStepPlan whose step actions include registered extensions
     display_executing_node("planner")
 
     inputs = state["inputs"]
     last_message = state["messages"][-1]
 
-    planner_llm = llm.with_structured_output(MultiStepPlan)
+    planner_llm = llm.with_structured_output(schema)
     plan = planner_llm.invoke([
         {"role": "system", "content": prompts["planner"]["system"].format(
             case_path=inputs.case_path, routine=inputs.routine, solver=inputs.solver

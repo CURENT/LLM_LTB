@@ -8,10 +8,15 @@ Nodes:
   error_handler → END | advance_step
   advance_step → step_controller | summary
   summary → END
+
+Extension routes (agent.extensions.RouteExtension) are wired exactly like the
+built-in route nodes. They come from ``create_workflow(..., extensions=...)`` or,
+when that argument is omitted, from ``$LTB_EXTENSIONS``.
 """
 
 from langgraph.graph import END, START, StateGraph
 
+from agent.extensions import build_schemas, extend_prompts, load_extensions_lenient, run_node, validate_extensions
 from agent.nodes.advance_step import advance_step
 from agent.nodes.case_io import case_io_agent
 from agent.nodes.classify import classify_message
@@ -33,12 +38,19 @@ _ROUTE_NODES = ("question_general", "question_parameter", "case_io",
                 "configure", "modify", "formulate", "solve")
 
 
-def create_workflow(llm, prompts, ams_ctx):
+def create_workflow(llm, prompts, ams_ctx, extensions=None):
+    # extensions=None reads $LTB_EXTENSIONS (failing entries skipped, see
+    # agent.extensions.load_warnings); pass () to disable extensions.
+    extensions = load_extensions_lenient() if extensions is None else validate_extensions(extensions)
+    prompts = extend_prompts(prompts, extensions)
+    classifier_schema, plan_schema = build_schemas(extensions)
+    routes = _ROUTE_NODES + tuple(e.name for e in extensions)
+
     g = StateGraph(State)
 
-    g.add_node("classifier", lambda s: classify_message(s, llm, prompts))
-    g.add_node("router", router)
-    g.add_node("planner", lambda s: planner_agent(s, llm, prompts))
+    g.add_node("classifier", lambda s: classify_message(s, llm, prompts, classifier_schema))
+    g.add_node("router", lambda s: router(s, extensions))
+    g.add_node("planner", lambda s: planner_agent(s, llm, prompts, plan_schema))
     g.add_node("step_controller", step_controller)
     g.add_node("advance_step", advance_step)
     g.add_node("summary", summary_agent)
@@ -51,6 +63,8 @@ def create_workflow(llm, prompts, ams_ctx):
     g.add_node("modify", lambda s: modify_agent(s, llm, prompts, ams_ctx))
     g.add_node("formulate", lambda s: formulate_agent(s, llm, prompts, ams_ctx))
     g.add_node("solve", lambda s: solve_agent(s, llm, prompts, ams_ctx))
+    for ext in extensions:
+        g.add_node(ext.name, lambda s, ext=ext: run_node(ext, s, llm, prompts, ams_ctx))
 
     g.add_edge(START, "classifier")
     g.add_edge("classifier", "router")
@@ -58,13 +72,13 @@ def create_workflow(llm, prompts, ams_ctx):
     g.add_conditional_edges(
         "router",
         lambda s: s.get("next"),
-        {**{n: n for n in _ROUTE_NODES}, "planner": "planner"},
+        {**{n: n for n in routes}, "planner": "planner"},
     )
     g.add_edge("planner", "step_controller")
     g.add_conditional_edges(
         "step_controller",
         lambda s: s.get("next"),
-        {**{n: n for n in _ROUTE_NODES}, "advance_step": "advance_step", "summary": "summary"},
+        {**{n: n for n in routes}, "advance_step": "advance_step", "summary": "summary"},
     )
 
     def _after_route(state):
@@ -74,7 +88,7 @@ def create_workflow(llm, prompts, ams_ctx):
             return "advance_step"
         return "END"
 
-    for node in _ROUTE_NODES:
+    for node in routes:
         g.add_conditional_edges(
             node, _after_route,
             {"error_handler": "error_handler", "advance_step": "advance_step", "END": END},

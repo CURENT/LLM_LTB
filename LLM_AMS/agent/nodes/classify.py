@@ -6,11 +6,12 @@ from agent.state.app_state import State
 from agent.utils.display import display_executing_node
 
 
-def classify_message(state: State, llm, prompts):
+def classify_message(state: State, llm, prompts, schema=MessageClassifier):
+    # ``schema``: a MessageClassifier whose routes include registered extensions
     display_executing_node("classifier")
 
     last_message = state["messages"][-1]
-    classifier_llm = llm.with_structured_output(MessageClassifier)
+    classifier_llm = llm.with_structured_output(schema)
     result = classifier_llm.invoke([
         {"role": "system", "content": prompts["classifier"]["system"]},
         {"role": "user", "content": last_message.content},
